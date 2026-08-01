@@ -27,6 +27,10 @@ app:
     namespaces-per-node: 10
     pods-per-namespace: 50
     batch-size: 1000
+  simulator:
+    enabled: true
+    interval-ms: 2000
+    mutations: 50
 
 logging:
   level:

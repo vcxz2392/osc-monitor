@@ -2,6 +2,7 @@ package com.osc.monitor;
 
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MySQLContainer;
@@ -14,8 +15,12 @@ import org.testcontainers.containers.MySQLContainer;
  * 두 번째 클래스부터 사라진 포트로 붙어 전부 연결 예외가 난다. 정리는 Ryuk 에 맡긴다.
  *
  * <p>데이터는 컨텍스트당 한 번 생성기가 적재한다(시드 고정이라 매번 같은 데이터다).
+ *
+ * <p>테스트 기본값은 {@code application-test.yml} 에 둔다. {@code @DynamicPropertySource} 는
+ * {@code @TestPropertySource} 보다 우선순위가 높아, 여기서 정하면 개별 테스트가 뒤집을 수 없다.
  */
 @SpringBootTest
+@ActiveProfiles("test")
 @AutoConfigureMockMvc
 public abstract class IntegrationTest {
 
@@ -33,7 +38,5 @@ public abstract class IntegrationTest {
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("app.generator.enabled", () -> true);
-        // 조회 한 번에 쿼리가 몇 개 나가는지 테스트가 세기 위해 켠다.
-        registry.add("spring.jpa.properties.hibernate.generate_statistics", () -> true);
     }
 }

@@ -31,4 +31,8 @@ public class RevisionSeq {
     public static RevisionSeq of(long cur) {
         return new RevisionSeq(cur);
     }
+
+    public long next() {
+        return ++cur;
+    }
 }
