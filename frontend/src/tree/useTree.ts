@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Resource } from '../api'
+import { api, type Resource, type ResourceStatus } from '../api'
 import { markStart } from '../perf'
 
 interface ChildList {
@@ -18,6 +18,8 @@ export interface TreeState {
   selectedId: number | null
   /** 검색 결과에서 골랐을 때 그 행으로 스크롤하기 위한 표식 */
   revealId: number | null
+  /** 지금 걸린 상태 필터. null 이면 전부 */
+  status: ResourceStatus | null
   rev: number
 }
 
@@ -36,6 +38,7 @@ const EMPTY: TreeState = {
   loading: new Set(),
   selectedId: null,
   revealId: null,
+  status: null,
   rev: 0,
 }
 
@@ -81,7 +84,7 @@ export function useTree() {
 
     setState((prev) => ({ ...prev, loading: with_(prev.loading, id) }))
     try {
-      const page = await api.children(id, { size: PAGE_SIZE })
+      const page = await api.children(id, { status: current.status ?? undefined, size: PAGE_SIZE })
       // 데이터를 받은 뒤에 한 번에 바꾼다. 먼저 펼치고 나중에 채우면 목록이 두 번 밀린다.
       setState((prev) => {
         const nodes = new Map(prev.nodes)
@@ -115,7 +118,7 @@ export function useTree() {
     const loaded = new Map<number, { ids: number[]; cursor: string | null }>()
     for (const id of ancestorIds) {
       if (latest.current.childrenOf.has(id) || loaded.has(id)) continue
-      const page = await api.children(id, { size: PAGE_SIZE })
+      const page = await api.children(id, { status: latest.current.status ?? undefined, size: PAGE_SIZE })
       loaded.set(id, { ids: page.items.map((item) => item.id), cursor: page.nextCursor })
       for (const item of page.items) loadedNodes.set(item.id, item)
     }
@@ -136,6 +139,42 @@ export function useTree() {
     setState((prev) => (prev.revealId === null ? prev : { ...prev, revealId: null }))
   }, [])
 
+  /**
+   * 상태 필터를 바꾼다.
+   *
+   * <p>펼쳐 둔 계층을 모두 다시 받아 <b>한 번에 교체</b>한다. 먼저 비우고 나중에 채우면
+   * 목록이 사라졌다 다시 차서 깜빡인다. 요청은 병렬로 나가고 화면은 한 번만 바뀐다.
+   */
+  const applyFilter = useCallback(async (status: ResourceStatus | null) => {
+    markStart('filter')
+    const openIds = [...latest.current.expanded]
+    const [roots, ...pages] = await Promise.all([
+      api.roots(status ?? undefined),
+      ...openIds.map((id) => api.children(id, { status: status ?? undefined, size: PAGE_SIZE })),
+    ])
+
+    const nodes = new Map<number, Resource>()
+    for (const item of roots.items) nodes.set(item.id, item)
+    const childrenOf = new Map<number, { ids: number[]; cursor: string | null }>()
+    openIds.forEach((id, index) => {
+      const page = pages[index]
+      for (const item of page.items) nodes.set(item.id, item)
+      childrenOf.set(id, { ids: page.items.map((item) => item.id), cursor: page.nextCursor })
+    })
+
+    setState((prev) => ({
+      ...prev,
+      nodes,
+      childrenOf,
+      rootIds: roots.items.map((item) => item.id),
+      // 걸러져 사라진 부모의 펼침 상태는 의미가 없다.
+      expanded: new Set([...prev.expanded].filter((id) => nodes.has(id))),
+      selectedId: prev.selectedId !== null && nodes.has(prev.selectedId) ? prev.selectedId : null,
+      status,
+      rev: roots.rev,
+    }))
+  }, [])
+
   const select = useCallback((id: number) => {
     setState((prev) => ({ ...prev, selectedId: prev.selectedId === id ? null : id }))
   }, [])
@@ -144,7 +183,7 @@ export function useTree() {
     setState((prev) => ({ ...prev, selectedId: null }))
   }, [])
 
-  return { state, error, toggle, select, clearSelection, reveal, clearReveal }
+  return { state, error, toggle, select, clearSelection, reveal, clearReveal, applyFilter }
 }
 
 /** 펼쳐진 경로만 따라 내려가며 평탄한 행 배열을 만든다. 접혀 있으면 순회 비용도 없다. */

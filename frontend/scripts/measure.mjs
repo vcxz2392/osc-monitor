@@ -151,6 +151,25 @@ async function search(browser) {
   )
 }
 
+/** ④ 필터 적용 → 화면 반영 (200ms) */
+async function filter(browser) {
+  return repeat(() =>
+    withPage(browser, async (page) => {
+      await page.goto(URL, { waitUntil: 'commit' })
+      await page.waitForSelector('body[data-first-interactive]')
+      // 파드까지 펼쳐 둔 상태에서 필터를 건다. 루트만 있는 화면은 갈아끼울 것이 20행뿐이다.
+      for (let level = 0; level < 3; level++) {
+        await page.locator('.row-arrow[data-collapsed]').first().click()
+        await page.waitForTimeout(150)
+      }
+      await page.evaluate(() => performance.clearMeasures('filter'))
+      await page.locator('.chip-error').click()
+      await page.waitForFunction(() => performance.getEntriesByName('filter').length > 0)
+      return userTiming(page, 'filter')
+    }),
+  )
+}
+
 /**
  * ⑤ 10만 건 규모 리스트 스크롤 (55fps)
  *
@@ -242,6 +261,7 @@ try {
   record('① 최초 진입 → 상호작용 가능', 500, 'ms', await firstInteractive(browser))
   record('② 하위 계층 펼치기', 100, 'ms', await expand(browser))
   record('③ 검색 → 결과 표시 (디바운스 제외)', 300, 'ms', await search(browser))
+  record('④ 필터 적용 → 화면 반영', 200, 'ms', await filter(browser))
 
   const scroll = await scrollFrames(browser)
   results.push({ item: '⑤ 10만 건 스크롤', target: 55, unit: 'fps', median: scroll.medianFps, ...scroll, passed: scroll.medianFps >= 55 && scroll.over === 0 })

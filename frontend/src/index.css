@@ -164,3 +164,9 @@ body {
 .row-result:hover { background: #1b202a; }
 .row-path { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .notice-hint { color: var(--muted); border-bottom: 1px solid var(--line); }
+
+.filter { display: flex; align-items: center; gap: 6px; }
+.filter-label { color: var(--muted); font-size: 12px; margin-right: 2px; }
+.chip-healthy.chip-on { border-color: var(--healthy); color: var(--healthy); }
+.chip-warning.chip-on { border-color: var(--warning); color: var(--warning); }
+.chip-error.chip-on { border-color: var(--error); color: var(--error); }
