@@ -29,3 +29,6 @@ export function measureAfterPaint(name: string): void {
     }, 0)
   })
 }
+
+/** 행이 실제로 몇 번 그려졌는지 센다. "변경분만 갱신" 은 눈으로 확인되지 않는다. */
+export const rowRenders = { count: 0 }

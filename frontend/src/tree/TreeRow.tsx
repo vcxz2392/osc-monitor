@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import type { Resource } from '../api'
 import { DEPTH } from '../api'
+import { rowRenders } from '../perf'
 import { aggregateLabel, metricsLabel, typeLabel, updatedAt } from './format'
 
 interface Props {
@@ -24,6 +25,7 @@ interface Props {
  */
 export const TreeRow = memo(function TreeRow(props: Props) {
   const { resource, expanded, loading, expandable, selected, onToggle, onSelect } = props
+  rowRenders.count++
   const arrow = loading ? '⋯' : expanded ? '▾' : '▸'
   return (
     <div

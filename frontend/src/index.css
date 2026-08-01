@@ -170,3 +170,17 @@ body {
 .chip-healthy.chip-on { border-color: var(--healthy); color: var(--healthy); }
 .chip-warning.chip-on { border-color: var(--warning); color: var(--warning); }
 .chip-error.chip-on { border-color: var(--error); color: var(--error); }
+
+.hud {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(22, 26, 34, 0.92);
+  color: var(--muted);
+  font-size: 12px;
+}

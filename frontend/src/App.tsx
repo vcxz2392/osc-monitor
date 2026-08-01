@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Resource, ResourceStatus, ResourceType } from './api'
+import { Hud } from './Hud'
 import { markPainted, measureAfterPaint } from './perf'
 import { SearchResults } from './search/SearchResults'
 import { useSearch } from './search/useSearch'
@@ -11,7 +12,7 @@ import { flatten, useTree } from './tree/useTree'
 const STATUS_TEXT: Record<ResourceStatus, string> = { HEALTHY: '정상', WARNING: '경고', ERROR: '오류' }
 
 export function App() {
-  const { state, error, toggle, select, clearSelection, reveal, clearReveal, applyFilter } = useTree()
+  const { state, error, stats, toggle, select, clearSelection, reveal, clearReveal, applyFilter } = useTree()
   const [query, setQuery] = useState('')
   const [type, setType] = useState<ResourceType | null>(null)
   const { result: searchResult, error: searchError } = useSearch(query, type)
@@ -31,6 +32,11 @@ export function App() {
     measureAfterPaint('filter')
   }, [state.status, state.rootIds])
 
+  // 변경이 실제로 있었던 폴링만 잰다. 0건 응답은 그릴 것이 없어 반영 시간이 정의되지 않는다.
+  useEffect(() => {
+    if (stats && stats.merged > 0) measureAfterPaint('delta')
+  }, [stats])
+
   const pick = (resource: Resource) => {
     setQuery('')
     setType(null)
@@ -41,7 +47,6 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>Infrastructure Monitoring</h1>
-        <span className="app-rev">rev {state.rev}</span>
         <span className="app-count">{rows.length.toLocaleString()} 행</span>
       </header>
       <Toolbar
@@ -72,6 +77,7 @@ export function App() {
           />
         )}
         {selected && <DetailPanel resource={selected} onClose={clearSelection} />}
+        <Hud stats={stats} rev={state.rev} />
       </main>
     </div>
   )

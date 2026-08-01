@@ -170,6 +170,24 @@ async function filter(browser) {
   )
 }
 
+/** ⑥ 데이터 갱신 → 화면 반영 (200ms, 깜빡임 없음) */
+async function delta(browser) {
+  return withPage(browser, async (page) => {
+    await page.goto(URL, { waitUntil: 'commit' })
+    await page.waitForSelector('body[data-first-interactive]')
+    for (let level = 0; level < 3; level++) {
+      await page.locator('.row-arrow[data-collapsed]').first().click()
+      await page.waitForTimeout(200)
+    }
+    // 변경이 실제로 있었던 폴링만 앱이 잰다. 그런 폴링이 RUNS 번 쌓일 때까지 기다린다.
+    await page.waitForFunction((n) => performance.getEntriesByName('delta').length >= n, RUNS, { timeout: 60_000 })
+    const durations = await page.evaluate(() => performance.getEntriesByName('delta').map((entry) => entry.duration))
+    const hud = await page.textContent('.hud')
+    durations.sort((a, b) => a - b)
+    return { median: durations[Math.floor(durations.length / 2)], runs: durations, hud: hud.trim() }
+  })
+}
+
 /**
  * ⑤ 10만 건 규모 리스트 스크롤 (55fps)
  *
@@ -262,6 +280,9 @@ try {
   record('② 하위 계층 펼치기', 100, 'ms', await expand(browser))
   record('③ 검색 → 결과 표시 (디바운스 제외)', 300, 'ms', await search(browser))
   record('④ 필터 적용 → 화면 반영', 200, 'ms', await filter(browser))
+  const deltaResult = await delta(browser)
+  record('⑥ 데이터 갱신 → 화면 반영', 200, 'ms', deltaResult, deltaResult.hud)
+  console.log(`   ${deltaResult.hud}`)
 
   const scroll = await scrollFrames(browser)
   results.push({ item: '⑤ 10만 건 스크롤', target: 55, unit: 'fps', median: scroll.medianFps, ...scroll, passed: scroll.medianFps >= 55 && scroll.over === 0 })

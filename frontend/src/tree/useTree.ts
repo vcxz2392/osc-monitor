@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Resource, type ResourceStatus } from '../api'
-import { markStart } from '../perf'
+import { markStart, rowRenders } from '../perf'
 
 interface ChildList {
   ids: number[]
@@ -43,13 +43,27 @@ const EMPTY: TreeState = {
 }
 
 const PAGE_SIZE = 200
+const POLL_MS = 2000
 
 /** reveal 이 여러 계층을 순차로 받는 동안 모아 두는 곳 */
 const loadedNodes = new Map<number, Resource>()
 
+export interface DeltaStats {
+  /** 서버가 내려준 변경 건수 */
+  changed: number
+  /** 그중 우리가 이미 갖고 있어 반영한 건수 */
+  merged: number
+  /** 실제로 다시 그려진 행 수 */
+  rerendered: number
+  rev: number
+}
+
 export function useTree() {
   const [state, setState] = useState<TreeState>(EMPTY)
   const [error, setError] = useState<string | null>(null)
+  const [stats, setStats] = useState<DeltaStats | null>(null)
+  // 리비전 커서는 상태로 두지 않는다. 바뀔 때마다 화면이 다시 그려질 이유가 없다.
+  const cursor = useRef<{ since: number; sinceId: number | null }>({ since: 0, sinceId: null })
 
   // 콜백이 매 렌더 새로 만들어지면 행의 memo 가 무력화된다.
   // 상태를 의존성에 넣는 대신 ref 를 거울로 둬서 콜백을 한 번만 만든다.
@@ -67,8 +81,71 @@ export function useTree() {
           rev: page.rev,
         })),
       )
+      .then(() => {
+        cursor.current = { since: latest.current.rev, sinceId: null }
+      })
       .catch((cause: Error) => setError(cause.message))
   }, [])
+
+  /**
+   * 주기적 폴링 + 서버 델타.
+   *
+   * <p>타이머를 의존성 없이 한 번만 건다. 상태를 의존성에 넣으면 매 렌더마다 타이머가
+   * 다시 걸려, 조작이 잦은 동안에는 갱신이 영영 돌지 않는다.
+   */
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      const current = latest.current
+      if (current.rootIds.length === 0) return
+
+      // 범위 = 펼쳐 둔 부모 + 상세를 열어 둔 리소스의 부모.
+      // 후자를 빼면 그 부모를 접었을 때 상세 패널이 조용히 낡는다.
+      const openParentIds = new Set(current.expanded)
+      const selectedParent = current.selectedId === null ? null : current.nodes.get(current.selectedId)?.parentId
+      if (selectedParent != null) openParentIds.add(selectedParent)
+
+      markStart('delta')
+      try {
+        const delta = await api.changes(cursor.current.since, [...openParentIds], true, cursor.current.sinceId)
+        cursor.current = { since: delta.maxRev, sinceId: delta.maxId }
+        applyDelta(delta.changed)
+      } catch {
+        // 폴링 실패는 다음 주기에 다시 시도한다. 화면에 오류를 띄우지 않는다.
+      }
+    }, POLL_MS)
+    return () => clearInterval(timer)
+  }, [])
+
+  const applyDelta = (changed: Resource[]) => {
+    const before = rowRenders.count
+    let merged = 0
+    setState((prev) => {
+      const nodes = new Map(prev.nodes)
+      for (const item of changed) {
+        const existing = nodes.get(item.id)
+        // 아직 받지 않은 노드는 버린다. 나중에 그 페이지를 조회하면 서버의 현재 값이 온다.
+        if (!existing) continue
+        // 같은 리비전이면 덮지 않는다. 덮으면 참조가 바뀌어 그 행이 헛되이 다시 그려진다.
+        if (existing.rev === item.rev) continue
+        nodes.set(item.id, item)
+        merged++
+      }
+      // 바뀐 것이 하나도 없으면 이전 상태를 그대로 돌려줘 리렌더 자체를 만들지 않는다.
+      return merged === 0 ? prev : { ...prev, nodes }
+    })
+    requestAnimationFrame(() =>
+      setTimeout(
+        () =>
+          setStats({
+            changed: changed.length,
+            merged,
+            rerendered: rowRenders.count - before,
+            rev: cursor.current.since,
+          }),
+        0,
+      ),
+    )
+  }
 
   const toggle = useCallback(async (id: number) => {
     const current = latest.current
@@ -183,7 +260,7 @@ export function useTree() {
     setState((prev) => ({ ...prev, selectedId: null }))
   }, [])
 
-  return { state, error, toggle, select, clearSelection, reveal, clearReveal, applyFilter }
+  return { state, error, stats, toggle, select, clearSelection, reveal, clearReveal, applyFilter }
 }
 
 /** 펼쳐진 경로만 따라 내려가며 평탄한 행 배열을 만든다. 접혀 있으면 순회 비용도 없다. */
