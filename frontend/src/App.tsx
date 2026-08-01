@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { markPainted } from './perf'
-import { TreeRow } from './tree/TreeRow'
+import { TreeList } from './tree/TreeList'
 import { flatten, useTree } from './tree/useTree'
 
 export function App() {
@@ -19,19 +19,8 @@ export function App() {
         <span className="app-count">{rows.length.toLocaleString()} 행</span>
       </header>
       <main className="app-body">
-        <div className="tree">
-          {error && <div className="notice notice-error">{error}</div>}
-          {rows.map((row) => (
-            <TreeRow
-              key={row.resource.id}
-              resource={row.resource}
-              expanded={row.expanded}
-              loading={row.loading}
-              expandable={row.expandable}
-              onToggle={toggle}
-            />
-          ))}
-        </div>
+        {error && <div className="notice notice-error">{error}</div>}
+        <TreeList rows={rows} onToggle={toggle} />
       </main>
     </div>
   )

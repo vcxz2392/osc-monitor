@@ -16,6 +16,7 @@ const URL = process.env.MEASURE_URL ?? 'http://localhost:4173/'
 const RUNS = 3
 const CPU_THROTTLE = 4
 const VIEWPORT = { width: 1440, height: 900 }
+const ROW_HEIGHT = 36
 
 const results = []
 
@@ -95,6 +96,107 @@ async function interaction(page, act, settled) {
 }
 
 const rowCount = (page) => page.evaluate(() => document.querySelectorAll('.row').length)
+const totalRows = (page) =>
+  page.evaluate(() => Number(document.querySelector('.app-count').textContent.replace(/[^0-9]/g, '')))
+
+const clickCollapsedInView = (page) =>
+  page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.row[data-expandable]')].reverse()
+    let clicked = 0
+    for (const row of rows) {
+      if (row.querySelector('.row-arrow').textContent === '\u25b8') {
+        row.click()
+        clicked++
+      }
+    }
+    return clicked
+  })
+
+/**
+ * 10만 행을 실제로 만든다.
+ *
+ * 가상 스크롤이라 DOM 에는 30여 행뿐이므로 화면을 훑으며 펼쳐야 한다.
+ * <b>아래에서 위로</b> 가는 것이 요령이다 — 펼치면 새 행이 항상 현재 위치 아래에 생기므로
+ * 위로 이동하면 아직 안 펼친 것들의 자리가 흔들리지 않는다.
+ */
+async function expandAll(page) {
+  const height = await page.evaluate(() => document.querySelector('.tree').clientHeight)
+  for (let level = 0; level < 3; level++) {
+    let top = Math.max(0, (await totalRows(page)) * ROW_HEIGHT - height)
+    while (top >= 0) {
+      await page.evaluate((y) => { document.querySelector('.tree').scrollTop = y }, top)
+      await page.waitForTimeout(30)
+      if ((await clickCollapsedInView(page)) > 0) await page.waitForTimeout(60)
+      if (top === 0) break
+      top = Math.max(0, top - height * 0.85)
+    }
+    for (let i = 0; i < 3; i++) {
+      await page.waitForTimeout(200)
+      if ((await clickCollapsedInView(page)) === 0) break
+    }
+  }
+  return totalRows(page)
+}
+
+/**
+ * ⑤ 10만 건 규모 리스트 스크롤 (55fps)
+ *
+ * fps 절대값이 아니라 <b>프레임 간격이 18.2ms 를 넘긴 횟수</b>로 판정한다.
+ * 디스플레이 주사율에 따라 fps 상한이 60/120/144 로 달라지기 때문이다.
+ */
+async function scrollFrames(browser) {
+  return withPage(browser, async (page) => {
+    await page.goto(URL, { waitUntil: 'commit' })
+    await page.waitForSelector('body[data-first-interactive]')
+
+    const rows = await expandAll(page)
+    const domRows = await rowCount(page)
+
+    const passes = []
+    for (let i = 0; i < RUNS; i++) {
+      await page.evaluate(() => { document.querySelector('.tree').scrollTop = 0 })
+      await page.waitForTimeout(300)
+      passes.push(
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => {
+              const tree = document.querySelector('.tree')
+              const gaps = []
+              let last = performance.now()
+              let ticks = 0
+              const step = () => {
+                const now = performance.now()
+                gaps.push(now - last)
+                last = now
+                tree.scrollTop += 240 // 실제 휠 입력에 가까운 이동량을 매 프레임
+                if (++ticks < 240) requestAnimationFrame(step)
+                else {
+                  gaps.shift()
+                  const sorted = [...gaps].sort((a, b) => a - b)
+                  resolve({
+                    frames: gaps.length,
+                    medianGap: sorted[Math.floor(sorted.length / 2)],
+                    worstGap: sorted[sorted.length - 1],
+                    over: gaps.filter((gap) => gap > 18.2).length,
+                  })
+                }
+              }
+              requestAnimationFrame(step)
+            }),
+        ),
+      )
+    }
+    const median = (key) => [...passes].map((p) => p[key]).sort((a, b) => a - b)[Math.floor(RUNS / 2)]
+    return {
+      rows,
+      domRows,
+      medianFps: 1000 / median('medianGap'),
+      over: median('over'),
+      frames: passes[0].frames,
+      perPass: passes.map((p) => p.over),
+    }
+  })
+}
 
 /** ② 하위 계층 펼치기 (100ms) */
 async function expand(browser) {
@@ -126,6 +228,12 @@ try {
 
   record('① 최초 진입 → 상호작용 가능', 500, 'ms', await firstInteractive(browser))
   record('② 하위 계층 펼치기', 100, 'ms', await expand(browser))
+
+  const scroll = await scrollFrames(browser)
+  results.push({ item: '⑤ 10만 건 스크롤', target: 55, unit: 'fps', median: scroll.medianFps, ...scroll, passed: scroll.medianFps >= 55 && scroll.over === 0 })
+  console.log(
+    `${scroll.medianFps >= 55 && scroll.over === 0 ? '✅' : '❌'} ⑤ 10만 건 스크롤${' '.repeat(19)}목표   55fps  중위 ${scroll.medianFps.toFixed(1)}fps · 18.2ms 초과 ${scroll.over}/${scroll.frames} · ${scroll.rows.toLocaleString()}행 중 DOM ${scroll.domRows}행`,
+  )
 
   const output = {
     조건: {
