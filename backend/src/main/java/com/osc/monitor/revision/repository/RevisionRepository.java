@@ -8,8 +8,6 @@ import org.springframework.stereotype.Repository;
 public interface RevisionRepository extends JpaRepository<RevisionSeq, Integer> {
 
     default long current() {
-        return findById(RevisionSeq.SINGLETON_ID)
-                .map(RevisionSeq::getCur)
-                .orElse(0L);
+        return findById(RevisionSeq.SINGLETON_ID).map(RevisionSeq::getCur).orElse(0L);
     }
 }

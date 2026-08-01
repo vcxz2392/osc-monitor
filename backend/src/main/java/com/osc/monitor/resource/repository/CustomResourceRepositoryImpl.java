@@ -23,8 +23,8 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
-    private final EntityManager em;
-    private final JdbcTemplate jdbc;
+    private final EntityManager entityManager;
+    private final JdbcTemplate jdbcTemplate;
 
     @Override
     public List<ResourceEntity> findRoots() {
@@ -34,7 +34,7 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
                  WHERE r.parent_id IS NULL
                  ORDER BY r.name, r.id
                 """;
-        return em.createNativeQuery(sql, ResourceEntity.class).getResultList();
+        return entityManager.createNativeQuery(sql, ResourceEntity.class).getResultList();
     }
 
     @Override
@@ -49,7 +49,7 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
         }
         sql.append(" ORDER BY r.name, r.id");
 
-        Query query = em.createNativeQuery(sql.toString(), ResourceEntity.class)
+        var query = entityManager.createNativeQuery(sql.toString(), ResourceEntity.class)
                 .setParameter("parentId", parentId)
                 .setMaxResults(size);
         if (cursor != null) {
@@ -60,7 +60,7 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
 
     @Override
     public void deleteAllResources() {
-        jdbc.execute("TRUNCATE TABLE resource");
+        jdbcTemplate.execute("TRUNCATE TABLE resource");
     }
 
     @Override
@@ -68,17 +68,17 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
         if (resources.isEmpty()) {
             return;
         }
-        List<Object[]> rows = new ArrayList<>(resources.size());
+        var rows = new ArrayList<Object[]>(resources.size());
         for (ResourceEntity resource : resources) {
             rows.add(toRow(resource));
         }
-        jdbc.batchUpdate(INSERT_SQL, rows);
+        jdbcTemplate.batchUpdate(INSERT_SQL, rows);
     }
 
     /** 대량 적재 직후에는 통계가 낡아 옵티마이저가 인덱스를 버리고 전체 스캔을 고른다. */
     @Override
     public void analyze() {
-        jdbc.execute("ANALYZE TABLE resource");
+        jdbcTemplate.execute("ANALYZE TABLE resource");
     }
 
     private static Object[] toRow(ResourceEntity resource) {

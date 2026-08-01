@@ -19,17 +19,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class ResourceController {
 
-    private final ResourceService service;
+    private final ResourceService resourceService;
 
     @GetMapping("/roots")
     public ChildrenResponse roots() {
-        return service.roots();
+        return resourceService.roots();
     }
 
     @GetMapping("/{id}/children")
     public ChildrenResponse children(@PathVariable long id,
                                      @RequestParam(required = false) String cursor,
                                      @RequestParam(defaultValue = "100") @Min(1) @Max(500) int size) {
-        return service.children(id, cursor, size);
+        return resourceService.children(id, cursor, size);
     }
 }

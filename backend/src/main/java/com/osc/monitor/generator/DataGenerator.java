@@ -45,43 +45,43 @@ public class DataGenerator implements ApplicationRunner {
     private static final String[] DOMAINS = {"payment", "order", "auth", "search", "delivery", "settle"};
     private static final String[] WORKLOADS = {"api", "web", "worker", "batch", "cache"};
 
-    private final ResourceRepository resources;
-    private final RevisionRepository revisions;
-    private final GeneratorProperties props;
+    private final ResourceRepository resourceRepository;
+    private final RevisionRepository revisionRepository;
+    private final GeneratorProperties generatorProperties;
 
     @Override
     public void run(ApplicationArguments args) {
-        props.validateIdRanges();
+        generatorProperties.validateIdRanges();
 
         long startedAt = System.currentTimeMillis();
         log.info("데이터 생성 시작: cluster={}, node={}, namespace={}, pod={}",
-                props.clusters(), props.totalNodes(), props.totalNamespaces(), props.totalPods());
+                generatorProperties.clusters(), generatorProperties.totalNodes(), generatorProperties.totalNamespaces(), generatorProperties.totalPods());
 
-        resources.deleteAllResources();
+        resourceRepository.deleteAllResources();
 
-        Random random = new Random(props.seed());
-        Instant baseTime = Instant.now();
+        var random = new Random(generatorProperties.seed());
+        var baseTime = Instant.now();
 
         // 잎의 상태를 먼저 만들고 부모 단위로 접어 올려 집계를 INSERT 시점에 확정한다.
-        byte[] podStatuses = generatePodStatuses(random);
-        Aggregate namespaces = foldLeaves(podStatuses, props.podsPerNamespace(), props.totalNamespaces());
-        Aggregate nodes = fold(namespaces, props.namespacesPerNode(), props.totalNodes());
-        Aggregate clusters = fold(nodes, props.nodesPerCluster(), props.clusters());
+        var podStatuses = generatePodStatuses(random);
+        var namespaces = foldLeaves(podStatuses, generatorProperties.podsPerNamespace(), generatorProperties.totalNamespaces());
+        var nodes = fold(namespaces, generatorProperties.namespacesPerNode(), generatorProperties.totalNodes());
+        var clusters = fold(nodes, generatorProperties.nodesPerCluster(), generatorProperties.clusters());
 
         insertClusters(clusters, random, baseTime);
         insertNodes(nodes, random, baseTime);
         insertNamespaces(namespaces, random, baseTime);
         insertPods(podStatuses, random, baseTime);
 
-        resources.analyze();
-        revisions.save(RevisionSeq.of(INITIAL_REV));
+        resourceRepository.analyze();
+        revisionRepository.save(RevisionSeq.of(INITIAL_REV));
 
-        long total = props.clusters() + props.totalNodes() + props.totalNamespaces() + props.totalPods();
+        long total = generatorProperties.clusters() + generatorProperties.totalNodes() + generatorProperties.totalNamespaces() + generatorProperties.totalPods();
         log.info("데이터 생성 완료: {}건, {}ms", total, System.currentTimeMillis() - startedAt);
     }
 
     private byte[] generatePodStatuses(Random random) {
-        byte[] statuses = new byte[props.totalPods()];
+        byte[] statuses = new byte[generatorProperties.totalPods()];
         for (int i = 0; i < statuses.length; i++) {
             double r = random.nextDouble();
             statuses[i] = (byte) (r < 0.90 ? ResourceStatus.HEALTHY.code()
@@ -117,9 +117,9 @@ public class DataGenerator implements ApplicationRunner {
     }
 
     private void insertClusters(Aggregate agg, Random random, Instant baseTime) {
-        int leafCnt = props.podsPerNamespace() * props.namespacesPerNode() * props.nodesPerCluster();
-        Batch batch = new Batch();
-        for (int c = 0; c < props.clusters(); c++) {
+        int leafCnt = generatorProperties.podsPerNamespace() * generatorProperties.namespacesPerNode() * generatorProperties.nodesPerCluster();
+        var batch = new Batch();
+        for (int c = 0; c < generatorProperties.clusters(); c++) {
             long id = GeneratorProperties.CLUSTER_BASE_ID + c;
             batch.add(new ResourceEntity(
                     id, null, ResourceType.CLUSTER,
@@ -127,7 +127,7 @@ public class DataGenerator implements ApplicationRunner {
                     ResourceStatus.rollUp(agg.errors()[c], agg.warns()[c]),
                     "/%d/".formatted(id),
                     updatedAt(baseTime, random), INITIAL_REV,
-                    new ResourceCounts(agg.errors()[c], agg.warns()[c], props.nodesPerCluster(), leafCnt),
+                    new ResourceCounts(agg.errors()[c], agg.warns()[c], generatorProperties.nodesPerCluster(), leafCnt),
                     "{\"version\":\"%s\",\"region\":\"%s\"}"
                             .formatted(VERSIONS[c % VERSIONS.length], REGIONS[c % REGIONS.length])));
         }
@@ -135,10 +135,10 @@ public class DataGenerator implements ApplicationRunner {
     }
 
     private void insertNodes(Aggregate agg, Random random, Instant baseTime) {
-        int leafCnt = props.podsPerNamespace() * props.namespacesPerNode();
-        Batch batch = new Batch();
-        for (int gn = 0; gn < props.totalNodes(); gn++) {
-            long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / props.nodesPerCluster();
+        int leafCnt = generatorProperties.podsPerNamespace() * generatorProperties.namespacesPerNode();
+        var batch = new Batch();
+        for (int gn = 0; gn < generatorProperties.totalNodes(); gn++) {
+            long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / generatorProperties.nodesPerCluster();
             long id = GeneratorProperties.NODE_BASE_ID + gn;
             batch.add(new ResourceEntity(
                     id, clusterId, ResourceType.NODE,
@@ -146,27 +146,27 @@ public class DataGenerator implements ApplicationRunner {
                     ResourceStatus.rollUp(agg.errors()[gn], agg.warns()[gn]),
                     "/%d/%d/".formatted(clusterId, id),
                     updatedAt(baseTime, random), INITIAL_REV,
-                    new ResourceCounts(agg.errors()[gn], agg.warns()[gn], props.namespacesPerNode(), leafCnt),
+                    new ResourceCounts(agg.errors()[gn], agg.warns()[gn], generatorProperties.namespacesPerNode(), leafCnt),
                     "{\"cpu\":%d,\"mem\":%d}".formatted(random.nextInt(101), random.nextInt(101))));
         }
         batch.flush();
     }
 
     private void insertNamespaces(Aggregate agg, Random random, Instant baseTime) {
-        Batch batch = new Batch();
-        for (int gs = 0; gs < props.totalNamespaces(); gs++) {
-            int gn = gs / props.namespacesPerNode();
-            long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / props.nodesPerCluster();
+        var batch = new Batch();
+        for (int gs = 0; gs < generatorProperties.totalNamespaces(); gs++) {
+            int gn = gs / generatorProperties.namespacesPerNode();
+            long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / generatorProperties.nodesPerCluster();
             long nodeId = GeneratorProperties.NODE_BASE_ID + gn;
             long id = GeneratorProperties.NAMESPACE_BASE_ID + gs;
             batch.add(new ResourceEntity(
                     id, nodeId, ResourceType.NAMESPACE,
-                    "ns-%s-%02d".formatted(DOMAINS[gs % DOMAINS.length], gs % props.namespacesPerNode() + 1),
+                    "ns-%s-%02d".formatted(DOMAINS[gs % DOMAINS.length], gs % generatorProperties.namespacesPerNode() + 1),
                     ResourceStatus.rollUp(agg.errors()[gs], agg.warns()[gs]),
                     "/%d/%d/%d/".formatted(clusterId, nodeId, id),
                     updatedAt(baseTime, random), INITIAL_REV,
                     new ResourceCounts(agg.errors()[gs], agg.warns()[gs],
-                            props.podsPerNamespace(), props.podsPerNamespace()),
+                            generatorProperties.podsPerNamespace(), generatorProperties.podsPerNamespace()),
                     "{\"quotaCpu\":%d,\"quotaMem\":%d}"
                             .formatted(random.nextInt(101), random.nextInt(101))));
         }
@@ -174,11 +174,11 @@ public class DataGenerator implements ApplicationRunner {
     }
 
     private void insertPods(byte[] podStatuses, Random random, Instant baseTime) {
-        Batch batch = new Batch();
-        for (int gp = 0; gp < props.totalPods(); gp++) {
-            int gs = gp / props.podsPerNamespace();
-            int gn = gs / props.namespacesPerNode();
-            long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / props.nodesPerCluster();
+        var batch = new Batch();
+        for (int gp = 0; gp < generatorProperties.totalPods(); gp++) {
+            int gs = gp / generatorProperties.podsPerNamespace();
+            int gn = gs / generatorProperties.namespacesPerNode();
+            long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / generatorProperties.nodesPerCluster();
             long nodeId = GeneratorProperties.NODE_BASE_ID + gn;
             long namespaceId = GeneratorProperties.NAMESPACE_BASE_ID + gs;
             long id = GeneratorProperties.POD_BASE_ID + gp;
@@ -203,17 +203,17 @@ public class DataGenerator implements ApplicationRunner {
     /** 10만 건을 한 리스트에 모으지 않도록 배치 크기마다 내보낸다. */
     private final class Batch {
 
-        private final List<ResourceEntity> buffer = new ArrayList<>(props.batchSize());
+        private final List<ResourceEntity> buffer = new ArrayList<>(generatorProperties.batchSize());
 
         void add(ResourceEntity resource) {
             buffer.add(resource);
-            if (buffer.size() >= props.batchSize()) {
+            if (buffer.size() >= generatorProperties.batchSize()) {
                 flush();
             }
         }
 
         void flush() {
-            resources.insertAll(buffer);
+            resourceRepository.insertAll(buffer);
             buffer.clear();
         }
     }

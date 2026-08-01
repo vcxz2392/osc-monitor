@@ -22,22 +22,22 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class ResourceService {
 
-    private final ResourceRepository resources;
-    private final RevisionRepository revisions;
+    private final ResourceRepository resourceRepository;
+    private final RevisionRepository revisionRepository;
     private final ObjectMapper objectMapper;
 
     public ChildrenResponse roots() {
-        long rev = revisions.current();
-        return new ChildrenResponse(toResponses(resources.findRoots()), null, rev);
+        long rev = revisionRepository.current();
+        return new ChildrenResponse(toResponses(resourceRepository.findRoots()), null, rev);
     }
 
     public ChildrenResponse children(long parentId, String encodedCursor, int size) {
-        long rev = revisions.current();
-        List<ResourceEntity> found = resources.findChildren(parentId, Cursor.decode(encodedCursor), size + 1);
+        long rev = revisionRepository.current();
+        var found = resourceRepository.findChildren(parentId, Cursor.decode(encodedCursor), size + 1);
 
         boolean hasMore = found.size() > size;
-        List<ResourceEntity> page = hasMore ? found.subList(0, size) : found;
-        String nextCursor = hasMore ? Cursor.of(page.getLast()).encode() : null;
+        var page = hasMore ? found.subList(0, size) : found;
+        var nextCursor = hasMore ? Cursor.of(page.getLast()).encode() : null;
 
         return new ChildrenResponse(toResponses(page), nextCursor, rev);
     }

@@ -27,9 +27,9 @@ public record Cursor(String name, long id) {
             return null;
         }
         try {
-            String raw = new String(DECODER.decode(encoded), StandardCharsets.UTF_8);
+            var raw = new String(DECODER.decode(encoded), StandardCharsets.UTF_8);
             // 이름에 구분자가 들어와도 마지막 것만 자른다.
-            int at = raw.lastIndexOf(SEPARATOR);
+            var at = raw.lastIndexOf(SEPARATOR);
             return new Cursor(raw.substring(0, at), Long.parseLong(raw.substring(at + 1)));
         } catch (IllegalArgumentException | IndexOutOfBoundsException e) {
             throw new ApiException(ErrorCode.INVALID_CURSOR);
