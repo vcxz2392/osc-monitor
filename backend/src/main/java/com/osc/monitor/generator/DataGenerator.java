@@ -5,14 +5,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-import com.osc.monitor.resource.ResourceRepository;
-import com.osc.monitor.resource.ResourceCounts;
-import com.osc.monitor.resource.ResourceEntity;
-import com.osc.monitor.resource.ResourceStatus;
-import com.osc.monitor.resource.ResourceType;
-import com.osc.monitor.revision.RevisionRepository;
+import com.osc.monitor.resource.repository.ResourceRepository;
+import com.osc.monitor.resource.domain.ResourceCounts;
+import com.osc.monitor.resource.repository.entity.ResourceEntity;
+import com.osc.monitor.resource.domain.ResourceStatus;
+import com.osc.monitor.resource.domain.ResourceType;
+import com.osc.monitor.revision.repository.RevisionRepository;
+import com.osc.monitor.revision.repository.entity.RevisionSeq;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,6 +31,7 @@ import org.springframework.stereotype.Component;
 @Component
 @EnableConfigurationProperties(GeneratorProperties.class)
 @ConditionalOnProperty(prefix = "app.generator", name = "enabled", havingValue = "true")
+@RequiredArgsConstructor
 public class DataGenerator implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataGenerator.class);
@@ -46,14 +49,6 @@ public class DataGenerator implements ApplicationRunner {
     private final RevisionRepository revisions;
     private final GeneratorProperties props;
 
-    public DataGenerator(ResourceRepository resources,
-                         RevisionRepository revisions,
-                         GeneratorProperties props) {
-        this.resources = resources;
-        this.revisions = revisions;
-        this.props = props;
-    }
-
     @Override
     public void run(ApplicationArguments args) {
         props.validateIdRanges();
@@ -62,7 +57,7 @@ public class DataGenerator implements ApplicationRunner {
         log.info("데이터 생성 시작: cluster={}, node={}, namespace={}, pod={}",
                 props.clusters(), props.totalNodes(), props.totalNamespaces(), props.totalPods());
 
-        resources.deleteAll();
+        resources.deleteAllResources();
 
         Random random = new Random(props.seed());
         Instant baseTime = Instant.now();
@@ -78,7 +73,8 @@ public class DataGenerator implements ApplicationRunner {
         insertNamespaces(namespaces, random, baseTime);
         insertPods(podStatuses, random, baseTime);
 
-        revisions.reset(INITIAL_REV);
+        resources.analyze();
+        revisions.save(RevisionSeq.of(INITIAL_REV));
 
         long total = props.clusters() + props.totalNodes() + props.totalNamespaces() + props.totalPods();
         log.info("데이터 생성 완료: {}건, {}ms", total, System.currentTimeMillis() - startedAt);

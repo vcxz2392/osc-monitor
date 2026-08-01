@@ -1,4 +1,4 @@
-package com.osc.monitor.resource;
+package com.osc.monitor.resource.domain;
 
 public enum ResourceStatus {
 

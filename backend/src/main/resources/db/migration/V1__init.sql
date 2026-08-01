@@ -22,8 +22,8 @@ CREATE TABLE resource
 -- 전역 단조 증가 리비전. 한 행만 존재한다.
 CREATE TABLE revision_seq
 (
-    id  TINYINT NOT NULL,
-    cur BIGINT  NOT NULL,
+    id  INT    NOT NULL,
+    cur BIGINT NOT NULL,
     PRIMARY KEY (id)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;

@@ -1,16 +1,24 @@
-package com.osc.monitor.resource;
+package com.osc.monitor.resource.repository.entity;
 
 import java.time.Instant;
 
+import com.osc.monitor.resource.domain.ResourceCounts;
+import com.osc.monitor.resource.domain.ResourceStatus;
+import com.osc.monitor.resource.domain.ResourceType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
+@Getter
 @Table(name = "resource")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ResourceEntity {
 
     @Id
@@ -53,9 +61,6 @@ public class ResourceEntity {
     @Column(name = "metrics_json")
     private String metricsJson;
 
-    protected ResourceEntity() {
-    }
-
     public ResourceEntity(Long id, Long parentId, ResourceType type, String name, ResourceStatus status,
                           String path, Instant updatedAt, long rev, ResourceCounts counts, String metricsJson) {
         this.id = id;
@@ -71,57 +76,5 @@ public class ResourceEntity {
         this.childCnt = counts.child();
         this.leafCnt = counts.leaf();
         this.metricsJson = metricsJson;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Long getParentId() {
-        return parentId;
-    }
-
-    public ResourceType getType() {
-        return type;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public ResourceStatus getStatus() {
-        return status;
-    }
-
-    public String getPath() {
-        return path;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public long getRev() {
-        return rev;
-    }
-
-    public int getErrorCnt() {
-        return errorCnt;
-    }
-
-    public int getWarnCnt() {
-        return warnCnt;
-    }
-
-    public int getChildCnt() {
-        return childCnt;
-    }
-
-    public int getLeafCnt() {
-        return leafCnt;
-    }
-
-    public String getMetricsJson() {
-        return metricsJson;
     }
 }
