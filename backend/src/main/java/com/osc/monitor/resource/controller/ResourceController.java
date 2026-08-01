@@ -1,6 +1,9 @@
 package com.osc.monitor.resource.controller;
 
+import java.util.List;
+
 import com.osc.monitor.resource.controller.dto.ChildrenResponse;
+import com.osc.monitor.resource.controller.dto.ResourceResponse;
 import com.osc.monitor.resource.service.ResourceService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -31,5 +34,10 @@ public class ResourceController {
                                      @RequestParam(required = false) String cursor,
                                      @RequestParam(defaultValue = "100") @Min(1) @Max(500) int size) {
         return resourceService.children(id, cursor, size);
+    }
+
+    @GetMapping("/{id}/ancestors")
+    public List<ResourceResponse> ancestors(@PathVariable long id) {
+        return resourceService.ancestors(id);
     }
 }

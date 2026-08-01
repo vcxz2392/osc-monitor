@@ -33,5 +33,7 @@ public abstract class IntegrationTest {
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("app.generator.enabled", () -> true);
+        // 조회 한 번에 쿼리가 몇 개 나가는지 테스트가 세기 위해 켠다.
+        registry.add("spring.jpa.properties.hibernate.generate_statistics", () -> true);
     }
 }
