@@ -1,20 +1,22 @@
 package com.osc.monitor.generator;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import com.osc.monitor.resource.ResourceRepository;
+import com.osc.monitor.resource.ResourceCounts;
+import com.osc.monitor.resource.ResourceEntity;
 import com.osc.monitor.resource.ResourceStatus;
 import com.osc.monitor.resource.ResourceType;
+import com.osc.monitor.revision.RevisionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -31,13 +33,6 @@ public class DataGenerator implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataGenerator.class);
 
-    private static final String INSERT_SQL = """
-            INSERT INTO resource
-                (id, parent_id, type, name, status, path, updated_at, rev,
-                 error_cnt, warn_cnt, child_cnt, leaf_cnt, metrics_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
     /** 적재 직후 모든 행의 리비전. 클라이언트는 이 값을 기준으로 델타를 받기 시작한다. */
     private static final long INITIAL_REV = 1L;
 
@@ -47,11 +42,15 @@ public class DataGenerator implements ApplicationRunner {
     private static final String[] DOMAINS = {"payment", "order", "auth", "search", "delivery", "settle"};
     private static final String[] WORKLOADS = {"api", "web", "worker", "batch", "cache"};
 
-    private final JdbcTemplate jdbc;
+    private final ResourceRepository resources;
+    private final RevisionRepository revisions;
     private final GeneratorProperties props;
 
-    public DataGenerator(JdbcTemplate jdbc, GeneratorProperties props) {
-        this.jdbc = jdbc;
+    public DataGenerator(ResourceRepository resources,
+                         RevisionRepository revisions,
+                         GeneratorProperties props) {
+        this.resources = resources;
+        this.revisions = revisions;
         this.props = props;
     }
 
@@ -63,13 +62,12 @@ public class DataGenerator implements ApplicationRunner {
         log.info("데이터 생성 시작: cluster={}, node={}, namespace={}, pod={}",
                 props.clusters(), props.totalNodes(), props.totalNamespaces(), props.totalPods());
 
-        jdbc.execute("TRUNCATE TABLE resource");
+        resources.deleteAll();
 
         Random random = new Random(props.seed());
         Instant baseTime = Instant.now();
 
-        // 잎의 상태를 먼저 만들고 부모 단위로 접어 올린다.
-        // 집계 컬럼을 INSERT 시점에 정확한 값으로 채워야 적재 직후부터 화면과 실제가 일치한다.
+        // 잎의 상태를 먼저 만들고 부모 단위로 접어 올려 집계를 INSERT 시점에 확정한다.
         byte[] podStatuses = generatePodStatuses(random);
         Aggregate namespaces = foldLeaves(podStatuses, props.podsPerNamespace(), props.totalNamespaces());
         Aggregate nodes = fold(namespaces, props.namespacesPerNode(), props.totalNodes());
@@ -80,7 +78,7 @@ public class DataGenerator implements ApplicationRunner {
         insertNamespaces(namespaces, random, baseTime);
         insertPods(podStatuses, random, baseTime);
 
-        jdbc.update("UPDATE revision_seq SET cur = ? WHERE id = 1", INITIAL_REV);
+        revisions.reset(INITIAL_REV);
 
         long total = props.clusters() + props.totalNodes() + props.totalNamespaces() + props.totalPods();
         log.info("데이터 생성 완료: {}건, {}ms", total, System.currentTimeMillis() - startedAt);
@@ -124,59 +122,63 @@ public class DataGenerator implements ApplicationRunner {
 
     private void insertClusters(Aggregate agg, Random random, Instant baseTime) {
         int leafCnt = props.podsPerNamespace() * props.namespacesPerNode() * props.nodesPerCluster();
-        List<Object[]> batch = new ArrayList<>(props.clusters());
+        Batch batch = new Batch();
         for (int c = 0; c < props.clusters(); c++) {
             long id = GeneratorProperties.CLUSTER_BASE_ID + c;
-            String metrics = "{\"version\":\"%s\",\"region\":\"%s\"}"
-                    .formatted(VERSIONS[c % VERSIONS.length], REGIONS[c % REGIONS.length]);
-            batch.add(row(id, null, ResourceType.CLUSTER,
+            batch.add(new ResourceEntity(
+                    id, null, ResourceType.CLUSTER,
                     "%s-cluster-%02d".formatted(ENVS[c % ENVS.length], c + 1),
                     ResourceStatus.rollUp(agg.errors()[c], agg.warns()[c]),
-                    "/%d/".formatted(id), baseTime, random,
-                    agg.errors()[c], agg.warns()[c], props.nodesPerCluster(), leafCnt, metrics));
+                    "/%d/".formatted(id),
+                    updatedAt(baseTime, random), INITIAL_REV,
+                    new ResourceCounts(agg.errors()[c], agg.warns()[c], props.nodesPerCluster(), leafCnt),
+                    "{\"version\":\"%s\",\"region\":\"%s\"}"
+                            .formatted(VERSIONS[c % VERSIONS.length], REGIONS[c % REGIONS.length])));
         }
-        flush(batch);
+        batch.flush();
     }
 
     private void insertNodes(Aggregate agg, Random random, Instant baseTime) {
         int leafCnt = props.podsPerNamespace() * props.namespacesPerNode();
-        List<Object[]> batch = new ArrayList<>(props.batchSize());
+        Batch batch = new Batch();
         for (int gn = 0; gn < props.totalNodes(); gn++) {
             long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / props.nodesPerCluster();
             long id = GeneratorProperties.NODE_BASE_ID + gn;
-            String metrics = "{\"cpu\":%d,\"mem\":%d}".formatted(random.nextInt(101), random.nextInt(101));
-            batch.add(row(id, clusterId, ResourceType.NODE,
+            batch.add(new ResourceEntity(
+                    id, clusterId, ResourceType.NODE,
                     "node-%03d".formatted(gn + 1),
                     ResourceStatus.rollUp(agg.errors()[gn], agg.warns()[gn]),
-                    "/%d/%d/".formatted(clusterId, id), baseTime, random,
-                    agg.errors()[gn], agg.warns()[gn], props.namespacesPerNode(), leafCnt, metrics));
-            flushIfFull(batch);
+                    "/%d/%d/".formatted(clusterId, id),
+                    updatedAt(baseTime, random), INITIAL_REV,
+                    new ResourceCounts(agg.errors()[gn], agg.warns()[gn], props.namespacesPerNode(), leafCnt),
+                    "{\"cpu\":%d,\"mem\":%d}".formatted(random.nextInt(101), random.nextInt(101))));
         }
-        flush(batch);
+        batch.flush();
     }
 
     private void insertNamespaces(Aggregate agg, Random random, Instant baseTime) {
-        List<Object[]> batch = new ArrayList<>(props.batchSize());
+        Batch batch = new Batch();
         for (int gs = 0; gs < props.totalNamespaces(); gs++) {
             int gn = gs / props.namespacesPerNode();
             long clusterId = GeneratorProperties.CLUSTER_BASE_ID + gn / props.nodesPerCluster();
             long nodeId = GeneratorProperties.NODE_BASE_ID + gn;
             long id = GeneratorProperties.NAMESPACE_BASE_ID + gs;
-            String metrics = "{\"quotaCpu\":%d,\"quotaMem\":%d}"
-                    .formatted(random.nextInt(101), random.nextInt(101));
-            batch.add(row(id, nodeId, ResourceType.NAMESPACE,
+            batch.add(new ResourceEntity(
+                    id, nodeId, ResourceType.NAMESPACE,
                     "ns-%s-%02d".formatted(DOMAINS[gs % DOMAINS.length], gs % props.namespacesPerNode() + 1),
                     ResourceStatus.rollUp(agg.errors()[gs], agg.warns()[gs]),
-                    "/%d/%d/%d/".formatted(clusterId, nodeId, id), baseTime, random,
-                    agg.errors()[gs], agg.warns()[gs], props.podsPerNamespace(), props.podsPerNamespace(),
-                    metrics));
-            flushIfFull(batch);
+                    "/%d/%d/%d/".formatted(clusterId, nodeId, id),
+                    updatedAt(baseTime, random), INITIAL_REV,
+                    new ResourceCounts(agg.errors()[gs], agg.warns()[gs],
+                            props.podsPerNamespace(), props.podsPerNamespace()),
+                    "{\"quotaCpu\":%d,\"quotaMem\":%d}"
+                            .formatted(random.nextInt(101), random.nextInt(101))));
         }
-        flush(batch);
+        batch.flush();
     }
 
     private void insertPods(byte[] podStatuses, Random random, Instant baseTime) {
-        List<Object[]> batch = new ArrayList<>(props.batchSize());
+        Batch batch = new Batch();
         for (int gp = 0; gp < props.totalPods(); gp++) {
             int gs = gp / props.podsPerNamespace();
             int gn = gs / props.namespacesPerNode();
@@ -184,40 +186,40 @@ public class DataGenerator implements ApplicationRunner {
             long nodeId = GeneratorProperties.NODE_BASE_ID + gn;
             long namespaceId = GeneratorProperties.NAMESPACE_BASE_ID + gs;
             long id = GeneratorProperties.POD_BASE_ID + gp;
-            String metrics = "{\"restarts\":%d,\"ageHours\":%d}"
-                    .formatted(random.nextInt(10), random.nextInt(720));
-            batch.add(row(id, namespaceId, ResourceType.POD,
+            batch.add(new ResourceEntity(
+                    id, namespaceId, ResourceType.POD,
                     "pod-%s-%06d".formatted(WORKLOADS[gp % WORKLOADS.length], gp + 1),
                     ResourceStatus.of(podStatuses[gp]),
-                    "/%d/%d/%d/%d/".formatted(clusterId, nodeId, namespaceId, id), baseTime, random,
-                    0, 0, 0, 0, metrics));
-            flushIfFull(batch);
+                    "/%d/%d/%d/%d/".formatted(clusterId, nodeId, namespaceId, id),
+                    updatedAt(baseTime, random), INITIAL_REV,
+                    ResourceCounts.LEAF,
+                    "{\"restarts\":%d,\"ageHours\":%d}"
+                            .formatted(random.nextInt(10), random.nextInt(720))));
         }
-        flush(batch);
+        batch.flush();
     }
 
-    private Object[] row(long id, Long parentId, ResourceType type, String name, ResourceStatus status,
-                         String path, Instant baseTime, Random random,
-                         int errorCnt, int warnCnt, int childCnt, int leafCnt, String metrics) {
-        Timestamp updatedAt = Timestamp.from(baseTime.minusSeconds(random.nextInt(3600)));
-        return new Object[]{
-                id, parentId, type.code(), name, status.code(), path,
-                updatedAt, INITIAL_REV, errorCnt, warnCnt, childCnt, leafCnt, metrics
-        };
+    /** 전부 같은 시각이면 "마지막 갱신 시간" 칸이 의미를 잃는다. */
+    private Instant updatedAt(Instant baseTime, Random random) {
+        return baseTime.minusSeconds(random.nextInt(3600));
     }
 
-    private void flushIfFull(List<Object[]> batch) {
-        if (batch.size() >= props.batchSize()) {
-            flush(batch);
-        }
-    }
+    /** 10만 건을 한 리스트에 모으지 않도록 배치 크기마다 내보낸다. */
+    private final class Batch {
 
-    private void flush(List<Object[]> batch) {
-        if (batch.isEmpty()) {
-            return;
+        private final List<ResourceEntity> buffer = new ArrayList<>(props.batchSize());
+
+        void add(ResourceEntity resource) {
+            buffer.add(resource);
+            if (buffer.size() >= props.batchSize()) {
+                flush();
+            }
         }
-        jdbc.batchUpdate(INSERT_SQL, batch);
-        batch.clear();
+
+        void flush() {
+            resources.insertAll(buffer);
+            buffer.clear();
+        }
     }
 
     private record Aggregate(int[] errors, int[] warns) {
