@@ -126,3 +126,41 @@ body {
 .detail-body dt { color: var(--muted); }
 .detail-body dd { margin: 0; overflow-wrap: anywhere; }
 .detail-path { color: var(--text); line-height: 1.6; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.search-input {
+  width: 340px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.search-input:focus { outline: 1px solid #4d7fd4; }
+
+.chips { display: flex; gap: 6px; }
+.chip {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.chip-on { border-color: #4d7fd4; color: #9ec1ff; }
+
+.row-result { cursor: pointer; }
+.row-result:hover { background: #1b202a; }
+.row-path { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.notice-hint { color: var(--muted); border-bottom: 1px solid var(--line); }

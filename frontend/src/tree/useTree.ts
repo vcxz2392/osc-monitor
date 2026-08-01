@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type Resource } from '../api'
+import { markStart } from '../perf'
 
 interface ChildList {
   ids: number[]
@@ -15,6 +16,8 @@ export interface TreeState {
   expanded: Set<number>
   loading: Set<number>
   selectedId: number | null
+  /** 검색 결과에서 골랐을 때 그 행으로 스크롤하기 위한 표식 */
+  revealId: number | null
   rev: number
 }
 
@@ -32,10 +35,14 @@ const EMPTY: TreeState = {
   expanded: new Set(),
   loading: new Set(),
   selectedId: null,
+  revealId: null,
   rev: 0,
 }
 
 const PAGE_SIZE = 200
+
+/** reveal 이 여러 계층을 순차로 받는 동안 모아 두는 곳 */
+const loadedNodes = new Map<number, Resource>()
 
 export function useTree() {
   const [state, setState] = useState<TreeState>(EMPTY)
@@ -95,6 +102,40 @@ export function useTree() {
     }
   }, [])
 
+  /**
+   * 검색 결과의 위치까지 트리를 펼친다.
+   *
+   * <p>경로에 있는 조상을 위에서부터 차례로 확보한다. 아직 안 받은 계층만 조회하므로
+   * 이미 펼쳐 본 경로라면 요청이 하나도 나가지 않는다.
+   */
+  const reveal = useCallback(async (target: Resource) => {
+    markStart('reveal')
+    const ancestorIds = target.path.split('/').filter(Boolean).map(Number).slice(0, -1)
+
+    const loaded = new Map<number, { ids: number[]; cursor: string | null }>()
+    for (const id of ancestorIds) {
+      if (latest.current.childrenOf.has(id) || loaded.has(id)) continue
+      const page = await api.children(id, { size: PAGE_SIZE })
+      loaded.set(id, { ids: page.items.map((item) => item.id), cursor: page.nextCursor })
+      for (const item of page.items) loadedNodes.set(item.id, item)
+    }
+
+    setState((prev) => {
+      const nodes = new Map(prev.nodes)
+      for (const [id, item] of loadedNodes) nodes.set(id, item)
+      loadedNodes.clear()
+      const childrenOf = new Map(prev.childrenOf)
+      for (const [id, list] of loaded) childrenOf.set(id, list)
+      const expanded = new Set(prev.expanded)
+      for (const id of ancestorIds) expanded.add(id)
+      return { ...prev, nodes, childrenOf, expanded, selectedId: target.id, revealId: target.id }
+    })
+  }, [])
+
+  const clearReveal = useCallback(() => {
+    setState((prev) => (prev.revealId === null ? prev : { ...prev, revealId: null }))
+  }, [])
+
   const select = useCallback((id: number) => {
     setState((prev) => ({ ...prev, selectedId: prev.selectedId === id ? null : id }))
   }, [])
@@ -103,7 +144,7 @@ export function useTree() {
     setState((prev) => ({ ...prev, selectedId: null }))
   }, [])
 
-  return { state, error, toggle, select, clearSelection }
+  return { state, error, toggle, select, clearSelection, reveal, clearReveal }
 }
 
 /** 펼쳐진 경로만 따라 내려가며 평탄한 행 배열을 만든다. 접혀 있으면 순회 비용도 없다. */

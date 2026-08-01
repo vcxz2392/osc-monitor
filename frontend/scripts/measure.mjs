@@ -101,15 +101,10 @@ const totalRows = (page) =>
 
 const clickCollapsedInView = (page) =>
   page.evaluate(() => {
-    const rows = [...document.querySelectorAll('.row[data-expandable]')].reverse()
-    let clicked = 0
-    for (const row of rows) {
-      if (row.querySelector('.row-arrow').textContent === '\u25b8') {
-        row.click()
-        clicked++
-      }
-    }
-    return clicked
+    // 아직 안 펼친 화살표만 고른다. 표시 문자를 비교하면 문자를 바꿀 때 자동화가 조용히 깨진다.
+    const arrows = [...document.querySelectorAll('.row-arrow[data-collapsed]')].reverse()
+    for (const arrow of arrows) arrow.click()
+    return arrows.length
   })
 
 /**
@@ -136,6 +131,24 @@ async function expandAll(page) {
     }
   }
   return totalRows(page)
+}
+
+/** 앱이 심어 둔 User Timing 측정값을 읽는다. 디바운스처럼 재면 안 되는 구간을 앱이 알고 있다. */
+const userTiming = (page, name) =>
+  page.evaluate((n) => performance.getEntriesByName(n).at(-1).duration, name)
+
+/** ③ 검색어 입력 → 결과 표시 (디바운스 제외, 300ms) */
+async function search(browser) {
+  return repeat(() =>
+    withPage(browser, async (page) => {
+      await page.goto(URL, { waitUntil: 'commit' })
+      await page.waitForSelector('body[data-first-interactive]')
+      await page.fill('.search-input', 'api')
+      await page.waitForSelector('.row-result')
+      await page.waitForFunction(() => performance.getEntriesByName('search').length > 0)
+      return userTiming(page, 'search')
+    }),
+  )
 }
 
 /**
@@ -228,6 +241,7 @@ try {
 
   record('① 최초 진입 → 상호작용 가능', 500, 'ms', await firstInteractive(browser))
   record('② 하위 계층 펼치기', 100, 'ms', await expand(browser))
+  record('③ 검색 → 결과 표시 (디바운스 제외)', 300, 'ms', await search(browser))
 
   const scroll = await scrollFrames(browser)
   results.push({ item: '⑤ 10만 건 스크롤', target: 55, unit: 'fps', median: scroll.medianFps, ...scroll, passed: scroll.medianFps >= 55 && scroll.over === 0 })
