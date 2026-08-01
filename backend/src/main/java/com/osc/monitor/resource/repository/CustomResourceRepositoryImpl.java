@@ -2,6 +2,7 @@ package com.osc.monitor.resource.repository;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 import com.osc.monitor.resource.domain.Cursor;
@@ -115,6 +116,45 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
                 .setMaxResults(size);
         if (type != null) {
             query.setParameter("type", type.code());
+        }
+        return query.getResultList();
+    }
+
+    /**
+     * 델타. 클라이언트가 "지금 펼쳐서 보고 있는 부모 id" 를 보내므로
+     * 응답 크기가 전체 데이터량이 아니라 화면 크기에 비례한다.
+     */
+    @Override
+    public List<ResourceEntity> findChanges(long since, Long sinceId, Collection<Long> parentIds,
+                                            boolean includeRoots, int size) {
+        var scope = new StringBuilder();
+        if (!parentIds.isEmpty()) {
+            scope.append("r.parent_id IN (:parentIds)");
+        }
+        if (includeRoots) {
+            scope.append(scope.isEmpty() ? "" : " OR ").append("r.parent_id IS NULL");
+        }
+        if (scope.isEmpty()) {
+            // 보고 있는 것이 없으면 내려줄 것도 없다. 범위 없는 델타는 10만 건 스캔이 된다.
+            return List.of();
+        }
+
+        // 한 번에 바뀐 것들은 리비전을 공유한다. 리비전만으로 이어받으면 그 묶음이 상한에 걸쳐 잘렸을 때
+        // 나머지를 다시 요청할 방법이 없다. (리비전, id) 를 함께 커서로 쓴다.
+        var cursor = sinceId == null
+                ? "r.rev > :since"
+                : "(r.rev > :since OR (r.rev = :since AND r.id > :sinceId))";
+
+        var query = entityManager.createNativeQuery(
+                        "SELECT r.* FROM resource r WHERE " + cursor + " AND (" + scope + ") ORDER BY r.rev, r.id",
+                        ResourceEntity.class)
+                .setParameter("since", since)
+                .setMaxResults(size);
+        if (sinceId != null) {
+            query.setParameter("sinceId", sinceId);
+        }
+        if (!parentIds.isEmpty()) {
+            query.setParameter("parentIds", parentIds);
         }
         return query.getResultList();
     }

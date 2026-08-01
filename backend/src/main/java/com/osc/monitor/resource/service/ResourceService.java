@@ -12,6 +12,8 @@ import static java.util.stream.Collectors.toMap;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.osc.monitor.resource.controller.dto.ChangesRequest;
+import com.osc.monitor.resource.controller.dto.ChangesResponse;
 import com.osc.monitor.resource.controller.dto.ChildrenResponse;
 import com.osc.monitor.resource.controller.dto.ResourceResponse;
 import com.osc.monitor.resource.controller.dto.SearchResponse;
@@ -25,6 +27,7 @@ import com.osc.monitor.revision.repository.RevisionRepository;
 import com.osc.monitor.support.ApiException;
 import com.osc.monitor.support.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +37,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ResourceService {
+
+    /** 한 응답에 담는 변경 상한. 넘으면 잘렸다고 알리고 클라이언트가 이어 받는다. */
+    @Value("${app.changes.limit:500}")
+    private int changesLimit;
 
     private final ResourceRepository resourceRepository;
     private final RevisionRepository revisionRepository;
@@ -53,6 +60,26 @@ public class ResourceService {
         var nextCursor = hasMore ? Cursor.of(page.getLast()).encode() : null;
 
         return new ChildrenResponse(toResponses(page), nextCursor, rev);
+    }
+
+    /**
+     * 화면에 이미 있는 것을 최신으로 유지하기 위한 증분. 아직 받지 않은 것은 조회가 담당한다.
+     */
+    public ChangesResponse changes(ChangesRequest request) {
+        // 조회보다 먼저 읽는다. 뒤에 읽으면 그 사이 변경이 다음 요청에서 누락된다.
+        var currentRev = revisionRepository.current();
+        var found = resourceRepository.findChanges(request.since(), request.sinceId(),
+                request.openParentIds(), request.includeRoots(), changesLimit + 1);
+
+        var truncated = found.size() > changesLimit;
+        var changed = truncated ? found.subList(0, changesLimit) : found;
+
+        // 잘렸다면 마지막으로 실제 전달한 행을 커서로 준다.
+        // 전역 리비전을 주면 그 사이 변경이 유실되고, 리비전만 주면 같은 리비전을 공유하는 나머지가 유실된다.
+        var maxRev = truncated ? changed.getLast().getRev() : currentRev;
+        var maxId = truncated ? changed.getLast().getId() : null;
+
+        return new ChangesResponse(maxRev, maxId, toResponses(changed), truncated);
     }
 
     /**

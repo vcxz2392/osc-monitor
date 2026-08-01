@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -31,6 +32,17 @@ public class ApiExceptionHandler {
         String message = e.getConstraintViolations().stream()
                 .findFirst()
                 .map(violation -> violation.getPropertyPath() + " " + violation.getMessage())
+                .orElse(ErrorCode.INVALID_PARAMETER.message());
+        return ResponseEntity.status(ErrorCode.INVALID_PARAMETER.status())
+                .body(ErrorResponse.of(ErrorCode.INVALID_PARAMETER, message));
+    }
+
+    /** 요청 본문 검증 실패. */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handle(MethodArgumentNotValidException e) {
+        var message = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(error -> error.getField() + " " + error.getDefaultMessage())
                 .orElse(ErrorCode.INVALID_PARAMETER.message());
         return ResponseEntity.status(ErrorCode.INVALID_PARAMETER.status())
                 .body(ErrorResponse.of(ErrorCode.INVALID_PARAMETER, message));
