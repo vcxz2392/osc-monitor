@@ -58,6 +58,31 @@ class DeltaQueryTest extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("오래 열어 둔 탭의 최악 — since 가 아주 뒤처져도 목표 안에 든다")
+    void 최악_비용() {
+        // 전 행이 새 리비전을 받은 상태에서, 화면은 네임스페이스 하나만 보고 있다.
+        // 응답은 50건이지만 rev 인덱스는 10만 건 구간을 훑으며 범위 밖을 걸러낸다.
+        jdbcTemplate.update("UPDATE resource SET rev = 2");
+        jdbcTemplate.update("UPDATE revision_seq SET cur = 2 WHERE id = 1");
+
+        var plan = jdbcTemplate.queryForObject("""
+                EXPLAIN ANALYZE
+                SELECT r.* FROM resource r
+                 WHERE r.rev > 1 AND (r.parent_id IN (100001))
+                 ORDER BY r.rev, r.id LIMIT 501
+                """, String.class);
+        log.info("델타 최악 실행 계획\n{}", plan);
+
+        var request = new ChangesRequest(1L, null, List.of(FIRST_NAMESPACE_ID), false);
+        var result = Measure.medianMillis(5, () -> resourceService.changes(request));
+
+        PerformanceReport.record("POST /changes (최악)", "전 행 변경 · 화면은 50건만", 200, result);
+        log.info("델타 최악 {}", result);
+        assertThat(result.value().changed()).hasSize(50);
+        assertThat(result.median()).isLessThan(200);
+    }
+
+    @Test
     @DisplayName("화면에 펼친 만큼만 내려오고 200ms 목표 안에 든다")
     void 응답시간() {
         jdbcTemplate.update("UPDATE resource SET rev = 2 WHERE parent_id = ?", FIRST_NAMESPACE_ID);

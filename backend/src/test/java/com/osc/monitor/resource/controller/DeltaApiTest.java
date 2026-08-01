@@ -107,6 +107,11 @@ class DeltaApiTest extends IntegrationTest {
                 { "since": 1, "includeRoots": true }""")
                 .andExpect(status().isBadRequest());
 
+        // 깨진 JSON 도 스프링 기본 응답이 아니라 우리 오류 형식으로 나가야 한다
+        changes("{ \"since\": 1, \"openParentIds\": [ }")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("INVALID_PARAMETER")));
+
         // 목록에 null 이 섞이면 바인딩 결과가 DB 마다 달라진다
         changes("""
                 { "since": 1, "openParentIds": [1, null], "includeRoots": false }""")

@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 조회 전용 API. 쓰기는 데이터 생성기에서만 일어난다. */
+/** 조회 전용 API. 쓰기는 데이터 생성기와 상태 시뮬레이터에서만 일어난다. */
 @Validated
 @RestController
 @RequestMapping("/api/resources")

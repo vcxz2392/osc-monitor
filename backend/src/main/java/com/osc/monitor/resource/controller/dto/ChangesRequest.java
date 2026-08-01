@@ -15,7 +15,7 @@ import jakarta.validation.constraints.Size;
  */
 public record ChangesRequest(
         @PositiveOrZero long since,
-        Long sinceId,
+        @Positive Long sinceId,
         @NotNull @Size(max = 1000, message = "한 번에 관찰할 수 있는 부모는 1000개까지입니다")
         List<@NotNull @Positive Long> openParentIds,
         boolean includeRoots
