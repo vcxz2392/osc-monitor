@@ -76,3 +76,9 @@ body {
 
 .notice { padding: 10px 12px; }
 .notice-error { color: var(--error); }
+
+.app-count { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+.row[data-expandable] { cursor: pointer; }
+.row[data-expandable]:hover { background: #1b202a; }
+.row-arrow { flex: none; width: 12px; color: var(--muted); }

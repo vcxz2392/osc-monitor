@@ -75,6 +75,43 @@ async function firstInteractive(browser) {
   )
 }
 
+/** 상호작용 한 번을 클릭 직전부터 "그려진 다음 페인트" 까지 잰다. */
+async function interaction(page, act, settled) {
+  await page.evaluate(() => performance.clearMarks())
+  await page.evaluate(() => performance.mark('act:start'))
+  await act()
+  await settled()
+  return page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() =>
+          setTimeout(() => {
+            performance.mark('act:end')
+            resolve(performance.measure('act', 'act:start', 'act:end').duration)
+          }, 0),
+        ),
+      ),
+  )
+}
+
+const rowCount = (page) => page.evaluate(() => document.querySelectorAll('.row').length)
+
+/** ② 하위 계층 펼치기 (100ms) */
+async function expand(browser) {
+  return repeat(() =>
+    withPage(browser, async (page) => {
+      await page.goto(URL, { waitUntil: 'commit' })
+      await page.waitForSelector('body[data-first-interactive]')
+      const before = await rowCount(page)
+      return interaction(
+        page,
+        () => page.locator('.row[data-expandable]').first().click(),
+        () => page.waitForFunction((n) => document.querySelectorAll('.row').length > n, before),
+      )
+    }),
+  )
+}
+
 function record(item, target, unit, measured, note = '') {
   const passed = measured.median <= target
   results.push({ item, target, unit, ...measured, passed, note })
@@ -88,6 +125,7 @@ try {
   console.log(`CPU 스로틀링 교정: 1x ${throttling.plain}ms → ${CPU_THROTTLE}x ${throttling.throttled}ms (실측 배율 ${throttling.ratio})\n`)
 
   record('① 최초 진입 → 상호작용 가능', 500, 'ms', await firstInteractive(browser))
+  record('② 하위 계층 펼치기', 100, 'ms', await expand(browser))
 
   const output = {
     조건: {
