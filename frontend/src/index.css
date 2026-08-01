@@ -93,3 +93,36 @@ body {
 .row[data-expandable] { cursor: pointer; }
 .row[data-expandable]:hover { background: #1b202a; }
 .row-arrow { flex: none; width: 12px; color: var(--muted); }
+
+.row-selected { background: #1d2530; }
+.row-arrow { cursor: pointer; }
+
+.detail {
+  flex: none;
+  width: 320px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  overflow: auto;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.detail-head strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.detail-body { display: grid; grid-template-columns: 84px 1fr; gap: 8px 12px; margin: 0; padding: 12px; }
+.detail-body dt { color: var(--muted); }
+.detail-body dd { margin: 0; overflow-wrap: anywhere; }
+.detail-path { color: var(--text); line-height: 1.6; }

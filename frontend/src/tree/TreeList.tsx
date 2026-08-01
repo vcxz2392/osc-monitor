@@ -8,7 +8,9 @@ const OVERSCAN = 8
 
 interface Props {
   rows: Row[]
+  selectedId: number | null
   onToggle: (id: number) => void
+  onSelect: (id: number) => void
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * <p>행 높이를 고정하면 스크롤 위치에서 인덱스를 나누기 한 번으로 구한다.
  * 그래서 목록이 10만 행이어도 DOM 에 존재하는 행은 화면에 보이는 만큼(+오버스캔)이다.
  */
-export function TreeList({ rows, onToggle }: Props) {
+export function TreeList({ rows, selectedId, onToggle, onSelect }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -42,7 +44,9 @@ export function TreeList({ rows, onToggle }: Props) {
                 expanded={row.expanded}
                 loading={row.loading}
                 expandable={row.expandable}
+                selected={row.resource.id === selectedId}
                 onToggle={onToggle}
+                onSelect={onSelect}
               />
             </div>
           )

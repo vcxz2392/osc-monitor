@@ -14,6 +14,7 @@ export interface TreeState {
   rootIds: number[]
   expanded: Set<number>
   loading: Set<number>
+  selectedId: number | null
   rev: number
 }
 
@@ -30,6 +31,7 @@ const EMPTY: TreeState = {
   rootIds: [],
   expanded: new Set(),
   loading: new Set(),
+  selectedId: null,
   rev: 0,
 }
 
@@ -93,7 +95,15 @@ export function useTree() {
     }
   }, [])
 
-  return { state, error, toggle }
+  const select = useCallback((id: number) => {
+    setState((prev) => ({ ...prev, selectedId: prev.selectedId === id ? null : id }))
+  }, [])
+
+  const clearSelection = useCallback(() => {
+    setState((prev) => ({ ...prev, selectedId: null }))
+  }, [])
+
+  return { state, error, toggle, select, clearSelection }
 }
 
 /** 펼쳐진 경로만 따라 내려가며 평탄한 행 배열을 만든다. 접혀 있으면 순회 비용도 없다. */

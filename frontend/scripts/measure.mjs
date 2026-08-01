@@ -207,7 +207,7 @@ async function expand(browser) {
       const before = await rowCount(page)
       return interaction(
         page,
-        () => page.locator('.row[data-expandable]').first().click(),
+        () => page.locator('.row-arrow[data-collapsed]').first().click(),
         () => page.waitForFunction((n) => document.querySelectorAll('.row').length > n, before),
       )
     }),

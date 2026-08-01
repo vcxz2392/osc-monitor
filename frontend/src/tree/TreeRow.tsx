@@ -8,7 +8,9 @@ interface Props {
   expanded: boolean
   loading: boolean
   expandable: boolean
+  selected: boolean
   onToggle: (id: number) => void
+  onSelect: (id: number) => void
 }
 
 /**
@@ -20,16 +22,27 @@ interface Props {
  * <p>펼침 상태는 Set 이 아니라 <b>불린</b>으로 내려온다. Set 을 그대로 넘기면 매번 새 참조라
  * 모든 행이 다시 그려진다.
  */
-export const TreeRow = memo(function TreeRow({ resource, expanded, loading, expandable, onToggle }: Props) {
+export const TreeRow = memo(function TreeRow(props: Props) {
+  const { resource, expanded, loading, expandable, selected, onToggle, onSelect } = props
   const arrow = loading ? '⋯' : expanded ? '▾' : '▸'
   return (
     <div
-      className="row"
+      className={`row${selected ? ' row-selected' : ''}`}
       style={{ paddingLeft: 8 + DEPTH[resource.type] * 16 }}
-      onClick={expandable ? () => onToggle(resource.id) : undefined}
+      onClick={() => onSelect(resource.id)}
       data-expandable={expandable || undefined}
     >
-      <span className="row-arrow">{expandable ? arrow : ''}</span>
+      <span
+        className="row-arrow"
+        data-collapsed={expandable && !expanded && !loading ? 'true' : undefined}
+        onClick={(event) => {
+          // 펼치기와 선택은 다른 동작이다. 화살표를 눌렀을 때 상세까지 열리면 의도가 섞인다.
+          event.stopPropagation()
+          if (expandable) onToggle(resource.id)
+        }}
+      >
+        {expandable ? arrow : ''}
+      </span>
       <span className={`badge badge-${resource.type.toLowerCase()}`}>{typeLabel(resource.type)}</span>
       <span className="row-name">{resource.name}</span>
       <span className={`status status-${resource.status.toLowerCase()}`}>{resource.status}</span>
