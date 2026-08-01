@@ -1,0 +1,28 @@
+# Java / Gradle
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+*.log
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+*.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Env
+.env
+.env.*
+!.env.example
+
+# 학습·설명용 노트. 제출물이 아니라 구현자가 결정 근거를 정리해 두는 곳이다.
+docs/study/
