@@ -10,6 +10,7 @@ node_modules/
 dist/
 .vite/
 *.local
+*.tsbuildinfo
 
 # IDE
 .idea/
@@ -30,3 +31,6 @@ docs/study/
 # ⚠️ 제출 전에 아래 두 줄을 지우고 README.md 를 커밋할 것. README 는 필수 제출물이다.
 # 구현 중에는 커밋마다 문서 diff 가 섞이지 않도록 추적에서 빼둔다.
 README.md
+
+# 프론트엔드 측정 산출물
+frontend/measure-result.json

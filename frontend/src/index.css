@@ -1,0 +1,36 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161a22;
+  --line: #262c38;
+  --text: #d7dce5;
+  --muted: #8b94a7;
+  --healthy: #3fb950;
+  --warning: #d29922;
+  --error: #f85149;
+  --row-height: 36px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.app { display: flex; flex-direction: column; height: 100vh; }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.app-header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+
+.app-body { flex: 1; min-height: 0; display: flex; }
