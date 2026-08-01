@@ -10,6 +10,7 @@
  * 목표를 넘기면 종료 코드 1. 참고용 항목(메모리)은 판정에서 제외한다.
  */
 import { writeFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { chromium } from 'playwright'
 
 const URL = process.env.MEASURE_URL ?? 'http://localhost:4173/'
@@ -99,13 +100,33 @@ const rowCount = (page) => page.evaluate(() => document.querySelectorAll('.row')
 const totalRows = (page) =>
   page.evaluate(() => Number(document.querySelector('.app-count').textContent.replace(/[^0-9]/g, '')))
 
-const clickCollapsedInView = (page) =>
-  page.evaluate(() => {
+const clickCollapsedInView = (page, types = null) =>
+  page.evaluate((allowed) => {
     // 아직 안 펼친 화살표만 고른다. 표시 문자를 비교하면 문자를 바꿀 때 자동화가 조용히 깨진다.
-    const arrows = [...document.querySelectorAll('.row-arrow[data-collapsed]')].reverse()
+    const selector = allowed
+      ? allowed.map((type) => `.row:has(.badge-${type}) .row-arrow[data-collapsed]`).join(',')
+      : '.row-arrow[data-collapsed]'
+    const arrows = [...document.querySelectorAll(selector)].reverse()
     for (const arrow of arrows) arrow.click()
     return arrows.length
-  })
+  }, types)
+
+/** 특정 계층까지만 펼친다. 메모리의 "실사용 규모" 표본을 만들 때 쓴다. */
+async function expandTypes(page, types) {
+  const height = await page.evaluate(() => document.querySelector('.tree').clientHeight)
+  let top = Math.max(0, (await totalRows(page)) * ROW_HEIGHT - height)
+  while (top >= 0) {
+    await page.evaluate((y) => { document.querySelector('.tree').scrollTop = y }, top)
+    await page.waitForTimeout(30)
+    if ((await clickCollapsedInView(page, types)) > 0) await page.waitForTimeout(60)
+    if (top === 0) break
+    top = Math.max(0, top - height * 0.85)
+  }
+  for (let i = 0; i < 3; i++) {
+    await page.waitForTimeout(200)
+    if ((await clickCollapsedInView(page, types)) === 0) break
+  }
+}
 
 /**
  * 10만 행을 실제로 만든다.
@@ -264,6 +285,77 @@ async function expand(browser) {
   )
 }
 
+/**
+ * 탭 메모리.
+ *
+ * 원문 기준은 Chrome 작업관리자인데 그 값은 CDP 로 얻을 수 없다.
+ * 작업관리자가 보여주는 것은 <b>탭을 그리는 렌더러 프로세스의 OS 메모리</b>이므로 그 프로세스를 직접 읽는다.
+ * private footprint 와 RSS 가 정확히 같은 수는 아니지만 같은 층의 값이다.
+ */
+async function rendererRssMb(browserSession) {
+  const { processInfo } = await browserSession.send('SystemInfo.getProcessInfo')
+  const renderers = processInfo.filter((info) => info.type === 'renderer')
+  let total = 0
+  for (const info of renderers) {
+    const rss = execSync(`ps -o rss= -p ${info.id} || true`).toString().trim()
+    if (rss) total += Number(rss)
+  }
+  return +(total / 1024).toFixed(1)
+}
+
+/** ⑦ 브라우저 탭 메모리 (참고용 300MB) */
+async function memory(browser) {
+  const browserSession = await browser.newBrowserCDPSession()
+  return withPage(browser, async (page, cdp) => {
+    const sample = async (label) => {
+      // 회수 전에 재면 "아직 안 치운 양" 이 섞인다.
+      await cdp.send('HeapProfiler.collectGarbage')
+      await page.waitForTimeout(500)
+      const agent = await page
+        .evaluate(() => (performance.measureUserAgentSpecificMemory ? performance.measureUserAgentSpecificMemory() : null))
+        .catch(() => null)
+      const heap = (await cdp.send('Runtime.getHeapUsage')).usedSize
+      return {
+        label,
+        rows: await totalRows(page),
+        rssMb: await rendererRssMb(browserSession),
+        agentMb: agent ? +(agent.bytes / 1024 / 1024).toFixed(1) : null,
+        jsHeapMb: +(heap / 1024 / 1024).toFixed(1),
+      }
+    }
+
+    await page.goto(URL, { waitUntil: 'commit' })
+    await page.waitForSelector('body[data-first-interactive]')
+    const empty = await sample('첫 화면 (클러스터 20행)')
+
+    // 실사용 규모 = 클러스터와 노드까지 펼쳐 훑는 상태(2,220행). 파드까지 전부 펼치는 것은 사용자가 만들 화면이 아니다.
+    await expandTypes(page, ['cluster'])
+    await expandTypes(page, ['node'])
+    const typical = await sample('실사용 규모 (클러스터·노드)')
+
+    await expandAll(page)
+    const full = await sample('10만 행 전부 펼침')
+
+    // 위에서부터 클러스터를 접는다. 하나 접으면 그 아래가 통째로 사라져 목록이 빠르게 줄어든다.
+    const deadline = Date.now() + 60_000
+    while ((await totalRows(page)) > 20 && Date.now() < deadline) {
+      await page.evaluate(() => { document.querySelector('.tree').scrollTop = 0 })
+      await page.waitForTimeout(50)
+      const clicked = await page.evaluate(() => {
+        const arrows = [...document.querySelectorAll('.row-arrow')].filter((a) => a.textContent === '\u25be')
+        if (arrows[0]) arrows[0].click()
+        return arrows.length
+      })
+      if (clicked === 0) break
+      await page.waitForTimeout(80)
+    }
+    await page.waitForTimeout(800)
+    const collapsed = await sample('전부 접은 뒤 (하위 폐기)')
+
+    return { empty, typical, full, collapsed }
+  })
+}
+
 function record(item, target, unit, measured, note = '') {
   const passed = measured.median <= target
   results.push({ item, target, unit, ...measured, passed, note })
@@ -283,6 +375,14 @@ try {
   const deltaResult = await delta(browser)
   record('⑥ 데이터 갱신 → 화면 반영', 200, 'ms', deltaResult, deltaResult.hud)
   console.log(`   ${deltaResult.hud}`)
+
+  const mem = await memory(browser)
+  const memPassed = mem.typical.rssMb <= 300
+  results.push({ item: '⑦ 탭 메모리', target: 300, unit: 'MB', median: mem.typical.rssMb, samples: mem, passed: memPassed, note: '참고용' })
+  console.log(`${memPassed ? '✅' : '⚠️'} ⑦ 탭 메모리 (참고용)${' '.repeat(17)}목표  300MB  실사용 ${mem.typical.rssMb}MB (${mem.typical.rows.toLocaleString()}행)`)
+  for (const s of [mem.empty, mem.typical, mem.full, mem.collapsed]) {
+    console.log(`     ${s.label.padEnd(22)} RSS ${String(s.rssMb).padStart(6)}MB · JS힙 ${String(s.jsHeapMb).padStart(5)}MB · ${s.rows.toLocaleString()}행`)
+  }
 
   const scroll = await scrollFrames(browser)
   results.push({ item: '⑤ 10만 건 스크롤', target: 55, unit: 'fps', median: scroll.medianFps, ...scroll, passed: scroll.medianFps >= 55 && scroll.over === 0 })

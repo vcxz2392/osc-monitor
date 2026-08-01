@@ -150,7 +150,7 @@ export function useTree() {
   const toggle = useCallback(async (id: number) => {
     const current = latest.current
     if (current.expanded.has(id)) {
-      setState((prev) => ({ ...prev, expanded: without(prev.expanded, id) }))
+      setState((prev) => collapse(prev, id))
       return
     }
     // 이미 받아 둔 계층이면 조회 없이 편다.
@@ -282,6 +282,42 @@ export function flatten(state: TreeState): Row[] {
   }
   walk(state.rootIds)
   return rows
+}
+
+/**
+ * 접으면 그 아래를 버린다.
+ *
+ * <p>남겨 두면 상주량이 "지금까지 열어 본 총량" 에 비례한다. 버리면 "지금 펼친 양" 에 비례한다.
+ * 대가는 다시 펼칠 때의 재요청 한 번이고, 그 비용은 이미 측정돼 있다(② 펼치기).
+ */
+function collapse(prev: TreeState, id: number): TreeState {
+  const nodes = new Map(prev.nodes)
+  const childrenOf = new Map(prev.childrenOf)
+  const expanded = new Set(prev.expanded)
+  const dropped = new Set<number>()
+
+  const drop = (parentId: number) => {
+    const list = childrenOf.get(parentId)
+    if (!list) return
+    childrenOf.delete(parentId)
+    expanded.delete(parentId)
+    for (const childId of list.ids) {
+      drop(childId)
+      nodes.delete(childId)
+      dropped.add(childId)
+    }
+  }
+  drop(id)
+  expanded.delete(id)
+
+  return {
+    ...prev,
+    nodes,
+    childrenOf,
+    expanded,
+    // 버린 리소스의 상세를 열어 두고 있었다면 함께 닫는다.
+    selectedId: prev.selectedId !== null && dropped.has(prev.selectedId) ? null : prev.selectedId,
+  }
 }
 
 const with_ = (set: Set<number>, id: number) => new Set(set).add(id)
