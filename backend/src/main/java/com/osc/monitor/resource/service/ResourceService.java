@@ -17,6 +17,7 @@ import com.osc.monitor.resource.controller.dto.ResourceResponse;
 import com.osc.monitor.resource.controller.dto.SearchResponse;
 import com.osc.monitor.resource.domain.Cursor;
 import com.osc.monitor.resource.domain.ResourcePath;
+import com.osc.monitor.resource.domain.ResourceStatus;
 import com.osc.monitor.resource.domain.ResourceType;
 import com.osc.monitor.resource.repository.ResourceRepository;
 import com.osc.monitor.resource.repository.entity.ResourceEntity;
@@ -38,14 +39,14 @@ public class ResourceService {
     private final RevisionRepository revisionRepository;
     private final ObjectMapper objectMapper;
 
-    public ChildrenResponse roots() {
+    public ChildrenResponse roots(ResourceStatus status) {
         long rev = revisionRepository.current();
-        return new ChildrenResponse(toResponses(resourceRepository.findRoots()), null, rev);
+        return new ChildrenResponse(toResponses(resourceRepository.findRoots(status)), null, rev);
     }
 
-    public ChildrenResponse children(long parentId, String encodedCursor, int size) {
+    public ChildrenResponse children(long parentId, String encodedCursor, ResourceStatus status, int size) {
         long rev = revisionRepository.current();
-        var found = resourceRepository.findChildren(parentId, Cursor.decode(encodedCursor), size + 1);
+        var found = resourceRepository.findChildren(parentId, Cursor.decode(encodedCursor), status, size + 1);
 
         boolean hasMore = found.size() > size;
         var page = hasMore ? found.subList(0, size) : found;

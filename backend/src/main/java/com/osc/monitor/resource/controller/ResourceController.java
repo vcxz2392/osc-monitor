@@ -5,6 +5,7 @@ import java.util.List;
 import com.osc.monitor.resource.controller.dto.ChildrenResponse;
 import com.osc.monitor.resource.controller.dto.ResourceResponse;
 import com.osc.monitor.resource.controller.dto.SearchResponse;
+import com.osc.monitor.resource.domain.ResourceStatus;
 import com.osc.monitor.resource.domain.ResourceType;
 import com.osc.monitor.resource.service.ResourceService;
 import jakarta.validation.constraints.Max;
@@ -28,15 +29,16 @@ public class ResourceController {
     private final ResourceService resourceService;
 
     @GetMapping("/roots")
-    public ChildrenResponse roots() {
-        return resourceService.roots();
+    public ChildrenResponse roots(@RequestParam(required = false) ResourceStatus status) {
+        return resourceService.roots(status);
     }
 
     @GetMapping("/{id}/children")
     public ChildrenResponse children(@PathVariable long id,
                                      @RequestParam(required = false) String cursor,
+                                     @RequestParam(required = false) ResourceStatus status,
                                      @RequestParam(defaultValue = "100") @Min(1) @Max(500) int size) {
-        return resourceService.children(id, cursor, size);
+        return resourceService.children(id, cursor, status, size);
     }
 
     @GetMapping("/search")

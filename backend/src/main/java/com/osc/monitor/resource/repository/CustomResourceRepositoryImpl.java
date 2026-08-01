@@ -6,6 +6,7 @@ import java.util.List;
 
 import com.osc.monitor.resource.domain.Cursor;
 import com.osc.monitor.resource.domain.LikePattern;
+import com.osc.monitor.resource.domain.ResourceStatus;
 import com.osc.monitor.resource.domain.ResourceType;
 import com.osc.monitor.resource.repository.entity.ResourceEntity;
 import jakarta.persistence.EntityManager;
@@ -28,32 +29,64 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
     private final EntityManager entityManager;
     private final JdbcTemplate jdbcTemplate;
 
-    @Override
-    public List<ResourceEntity> findRoots() {
-        var sql = """
-                SELECT r.*
-                  FROM resource r
-                 WHERE r.parent_id IS NULL
-                 ORDER BY r.name, r.id
-                """;
-        return entityManager.createNativeQuery(sql, ResourceEntity.class).getResultList();
+    /**
+     * 상태 필터를 계층에 맞게 해석한다.
+     *
+     * <p>상위 계층의 status 는 하위를 굴려 올린 값이라, 파드가 10만이면 클러스터는 사실상 항상 ERROR 다.
+     * 그 상태로 "정상만 보기"를 상위에도 적용하면 루트가 0건이 되어 화면이 통째로 비고,
+     * 사용자는 정상인 파드를 볼 방법 자체를 잃는다.
+     *
+     * <p>그래서 <b>잎은 자기 상태로, 상위는 그 상태를 하위에 갖고 있는지로</b> 거른다.
+     * 정상은 대응하는 집계 컬럼이 없어(healthy 개수를 세어 두지 않았다) 상위를 거르지 않고 경로로 남긴다.
+     */
+    private static String hasDescendantWith(ResourceStatus status) {
+        return switch (status) {
+            case ERROR -> "r.error_cnt > 0";
+            case WARNING -> "r.warn_cnt > 0";
+            case HEALTHY -> "1 = 1";
+        };
     }
 
     @Override
-    public List<ResourceEntity> findChildren(long parentId, Cursor cursor, int size) {
+    public List<ResourceEntity> findRoots(ResourceStatus status) {
+        var sql = new StringBuilder("""
+                SELECT r.*
+                  FROM resource r
+                 WHERE r.parent_id IS NULL
+                """);
+        // 루트는 항상 클러스터라 잎이 될 수 없다.
+        if (status != null) {
+            sql.append(" AND ").append(hasDescendantWith(status)).append('\n');
+        }
+        sql.append(" ORDER BY r.name, r.id");
+        return entityManager.createNativeQuery(sql.toString(), ResourceEntity.class).getResultList();
+    }
+
+    /** 실행 계획 테스트가 손으로 옮겨 적지 않도록 조립을 꺼내 둔다. */
+    static String childrenSql(Cursor cursor, ResourceStatus status) {
         var sql = new StringBuilder("""
                 SELECT r.*
                   FROM resource r
                  WHERE r.parent_id = :parentId
                 """);
+        if (status != null) {
+            sql.append(" AND ((r.type = :leafType AND r.status = :status)")
+                    .append(" OR (r.type <> :leafType AND ").append(hasDescendantWith(status)).append("))\n");
+        }
         if (cursor != null) {
             sql.append(" AND (r.name, r.id) > (:cursorName, :cursorId)\n");
         }
-        sql.append(" ORDER BY r.name, r.id");
+        return sql.append(" ORDER BY r.name, r.id").toString();
+    }
 
-        var query = entityManager.createNativeQuery(sql.toString(), ResourceEntity.class)
+    @Override
+    public List<ResourceEntity> findChildren(long parentId, Cursor cursor, ResourceStatus status, int size) {
+        var query = entityManager.createNativeQuery(childrenSql(cursor, status), ResourceEntity.class)
                 .setParameter("parentId", parentId)
                 .setMaxResults(size);
+        if (status != null) {
+            query.setParameter("leafType", ResourceType.POD.code()).setParameter("status", status.code());
+        }
         if (cursor != null) {
             query.setParameter("cursorName", cursor.name()).setParameter("cursorId", cursor.id());
         }

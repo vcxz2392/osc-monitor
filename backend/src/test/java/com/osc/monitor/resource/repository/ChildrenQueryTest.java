@@ -5,6 +5,9 @@ import com.osc.monitor.resource.service.ResourceService;
 import com.osc.monitor.Measure;
 import com.osc.monitor.PerformanceReport;
 import com.osc.monitor.resource.controller.dto.ChildrenResponse;
+import com.osc.monitor.resource.domain.ResourceStatus;
+import com.osc.monitor.resource.domain.ResourceType;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -35,16 +38,19 @@ class ChildrenQueryTest extends IntegrationTest {
             """;
 
     @Autowired
-    private ResourceService service;
+    private ResourceService resourceService;
 
     @Autowired
-    private JdbcTemplate jdbc;
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     @DisplayName("펼치기는 100ms 목표 안에 든다")
     void 펼치기_응답시간() {
         Measure.Result<ChildrenResponse> result =
-                Measure.medianMillis(5, () -> service.children(NAMESPACE_ID, null, 100));
+                Measure.medianMillis(5, () -> resourceService.children(NAMESPACE_ID, null, null, 100));
 
         PerformanceReport.record("GET /{id}/children", "파드 50건", 100, result);
         log.info("펼치기(파드 50건) {}", result);
@@ -53,9 +59,36 @@ class ChildrenQueryTest extends IntegrationTest {
     }
 
     @Test
+    @DisplayName("상태 필터를 걸어도 uk_children 으로 부모를 찾은 뒤 걸러낸다")
+    void 필터_실행계획() {
+        // 저장소가 실제로 조립하는 SQL 을 그대로 쓴다. 손으로 옮겨 적으면 조건이 바뀌어도 테스트가 통과한다.
+        var plan = (String) entityManager
+                .createNativeQuery("EXPLAIN ANALYZE " + CustomResourceRepositoryImpl.childrenSql(null, ResourceStatus.ERROR))
+                .setParameter("parentId", NAMESPACE_ID)
+                .setParameter("leafType", ResourceType.POD.code())
+                .setParameter("status", ResourceStatus.ERROR.code())
+                .getSingleResult();
+
+        log.info("상태 필터 실행 계획\n{}", plan);
+        assertThat(plan).contains("uk_children");
+        assertThat(plan.toLowerCase()).doesNotContain("table scan");
+    }
+
+    @Test
+    @DisplayName("상태 필터를 걸어도 200ms 목표 안에 든다")
+    void 필터_응답시간() {
+        var result = Measure.medianMillis(5,
+                () -> resourceService.children(NAMESPACE_ID, null, ResourceStatus.ERROR, 100));
+
+        PerformanceReport.record("GET /{id}/children?status=", "파드 50건 중 오류만", 200, result);
+        log.info("상태 필터 {}", result);
+        assertThat(result.median()).isLessThan(200);
+    }
+
+    @Test
     @DisplayName("루트 조회는 500ms 목표 안에 든다")
     void 루트_응답시간() {
-        Measure.Result<ChildrenResponse> result = Measure.medianMillis(5, () -> service.roots());
+        Measure.Result<ChildrenResponse> result = Measure.medianMillis(5, () -> resourceService.roots(null));
 
         PerformanceReport.record("GET /roots", "클러스터 20건", 500, result);
         log.info("루트(클러스터 20건) {}", result);
@@ -85,6 +118,6 @@ class ChildrenQueryTest extends IntegrationTest {
     }
 
     private String explain(String sql) {
-        return jdbc.queryForObject("EXPLAIN ANALYZE " + sql, String.class);
+        return jdbcTemplate.queryForObject("EXPLAIN ANALYZE " + sql, String.class);
     }
 }
