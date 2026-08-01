@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -33,6 +34,12 @@ public class ApiExceptionHandler {
                 .orElse(ErrorCode.INVALID_PARAMETER.message());
         return ResponseEntity.status(ErrorCode.INVALID_PARAMETER.status())
                 .body(ErrorResponse.of(ErrorCode.INVALID_PARAMETER, message));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handle(MissingServletRequestParameterException e) {
+        return ResponseEntity.status(ErrorCode.INVALID_PARAMETER.status())
+                .body(ErrorResponse.of(ErrorCode.INVALID_PARAMETER, "%s 파라미터가 필요합니다.".formatted(e.getParameterName())));
     }
 
     /** enum·숫자 변환 실패. */

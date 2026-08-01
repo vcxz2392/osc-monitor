@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.osc.monitor.resource.domain.Cursor;
+import com.osc.monitor.resource.domain.LikePattern;
+import com.osc.monitor.resource.domain.ResourceType;
 import com.osc.monitor.resource.repository.entity.ResourceEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -54,6 +56,32 @@ public class CustomResourceRepositoryImpl implements CustomResourceRepository {
                 .setMaxResults(size);
         if (cursor != null) {
             query.setParameter("cursorName", cursor.name()).setParameter("cursorId", cursor.id());
+        }
+        return query.getResultList();
+    }
+
+    /**
+     * 이름 시작과 하이픈 뒤 토큰 시작을 함께 본다.
+     * 앞부분만 지원하면 {@code pod-api-000417} 을 {@code api} 로 찾지 못한다.
+     */
+    @Override
+    public List<ResourceEntity> search(String name, ResourceType type, int size) {
+        var sql = new StringBuilder("""
+                SELECT r.*
+                  FROM resource r
+                 WHERE (r.name LIKE :startsWith ESCAPE '!' OR r.name LIKE :tokenStartsWith ESCAPE '!')
+                """);
+        if (type != null) {
+            sql.append(" AND r.type = :type\n");
+        }
+        sql.append(" ORDER BY r.name, r.id");
+
+        var query = entityManager.createNativeQuery(sql.toString(), ResourceEntity.class)
+                .setParameter("startsWith", LikePattern.startsWith(name))
+                .setParameter("tokenStartsWith", LikePattern.tokenStartsWith(name))
+                .setMaxResults(size);
+        if (type != null) {
+            query.setParameter("type", type.code());
         }
         return query.getResultList();
     }

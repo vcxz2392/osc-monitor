@@ -1,7 +1,10 @@
 package com.osc.monitor.resource.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toMap;
@@ -11,8 +14,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.osc.monitor.resource.controller.dto.ChildrenResponse;
 import com.osc.monitor.resource.controller.dto.ResourceResponse;
+import com.osc.monitor.resource.controller.dto.SearchResponse;
 import com.osc.monitor.resource.domain.Cursor;
 import com.osc.monitor.resource.domain.ResourcePath;
+import com.osc.monitor.resource.domain.ResourceType;
 import com.osc.monitor.resource.repository.ResourceRepository;
 import com.osc.monitor.resource.repository.entity.ResourceEntity;
 import com.osc.monitor.revision.repository.RevisionRepository;
@@ -47,6 +52,28 @@ public class ResourceService {
         var nextCursor = hasMore ? Cursor.of(page.getLast()).encode() : null;
 
         return new ChildrenResponse(toResponses(page), nextCursor, rev);
+    }
+
+    /**
+     * 이름으로 찾는다. 결과가 계층 어디에 있는지는 <b>고르기 전에</b> 보여야 하므로
+     * 조상 이름을 함께 내려보낸다.
+     */
+    public SearchResponse search(String name, ResourceType type, int size) {
+        // 브라우저 입력에는 앞뒤 공백이 흔히 섞인다. @NotBlank 는 공백뿐인 값만 막는다.
+        var found = resourceRepository.search(name.trim(), type, size + 1);
+        var truncated = found.size() > size;
+        var page = truncated ? found.subList(0, size) : found;
+
+        // 결과 50건의 조상은 대부분 겹친다. 항목마다 경로 문자열을 붙이면 같은 값을 수십 번 실어 보내게 된다.
+        Set<Long> ancestorIds = page.stream()
+                .flatMap(entity -> ResourcePath.parseAncestorIds(entity.getPath()).stream())
+                .collect(Collectors.toSet());
+        Map<Long, String> ancestorNames = ancestorIds.isEmpty()
+                ? Map.of()
+                : resourceRepository.findAllById(ancestorIds).stream()
+                        .collect(toMap(ResourceEntity::getId, ResourceEntity::getName));
+
+        return new SearchResponse(toResponses(page), truncated, ancestorNames);
     }
 
     /**
