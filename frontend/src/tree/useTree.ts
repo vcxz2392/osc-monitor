@@ -149,6 +149,8 @@ export function useTree() {
 
   const toggle = useCallback(async (id: number) => {
     const current = latest.current
+    // 펼치기·축소도 앱이 잰다. 개발자도구 User Timing 트랙에서 검색·필터·갱신과 같은 방식으로 읽힌다.
+    markStart('expand')
     if (current.expanded.has(id)) {
       setState((prev) => collapse(prev, id))
       return
@@ -189,7 +191,6 @@ export function useTree() {
    * 이미 펼쳐 본 경로라면 요청이 하나도 나가지 않는다.
    */
   const reveal = useCallback(async (target: Resource) => {
-    markStart('reveal')
     const ancestorIds = target.path.split('/').filter(Boolean).map(Number).slice(0, -1)
 
     const loaded = new Map<number, { ids: number[]; cursor: string | null }>()

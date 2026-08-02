@@ -32,6 +32,10 @@ export function App() {
     measureAfterPaint('filter')
   }, [state.status, state.rootIds])
 
+  useEffect(() => {
+    measureAfterPaint('expand')
+  }, [state.expanded])
+
   // 변경이 실제로 있었던 폴링만 잰다. 0건 응답은 그릴 것이 없어 반영 시간이 정의되지 않는다.
   useEffect(() => {
     if (stats && stats.merged > 0) measureAfterPaint('delta')
