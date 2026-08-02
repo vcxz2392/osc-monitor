@@ -37,4 +37,7 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 테스트가 API 응답시간도 재므로 캐시를 쓰지 않는다.
+	// UP-TO-DATE 로 건너뛰면 성능 리포트가 새로 만들어지지 않는다.
+	outputs.upToDateWhen { false }
 }
