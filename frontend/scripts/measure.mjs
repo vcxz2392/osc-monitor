@@ -286,21 +286,26 @@ async function expand(browser) {
 }
 
 /**
- * 탭 메모리.
+ * 탭 메모리 = 렌더러 프로세스의 phys_footprint.
  *
- * 원문 기준은 Chrome 작업관리자인데 그 값은 CDP 로 얻을 수 없다.
- * 작업관리자가 보여주는 것은 <b>탭을 그리는 렌더러 프로세스의 OS 메모리</b>이므로 그 프로세스를 직접 읽는다.
- * private footprint 와 RSS 가 정확히 같은 수는 아니지만 같은 층의 값이다.
+ * <p>원문 기준은 Chrome 작업관리자인데 그 값은 CDP 로 얻을 수 없다. 작업관리자의 "메모리 공간" 열은
+ * 렌더러 프로세스의 <b>phys_footprint</b> 이므로 그 프로세스를 찾아 같은 값을 읽는다.
+ *
+ * <p>RSS 를 쓰면 안 된다 — macOS 의 RSS 는 매핑된 공유 라이브러리까지 포함해서
+ * 같은 프로세스가 <b>footprint 43MB / RSS 152MB</b> 로 세 배 넘게 벌어진다. 층이 다른 값이다.
  */
-async function rendererRssMb(browserSession) {
+async function rendererFootprintMb(browserSession) {
   const { processInfo } = await browserSession.send('SystemInfo.getProcessInfo')
   const renderers = processInfo.filter((info) => info.type === 'renderer')
+  // 탭이 하나이므로 렌더러도 하나여야 한다. 둘 이상이면 브라우저의 메모리를 재는 셈이라 알린다.
+  if (renderers.length !== 1) console.warn(`⚠️  렌더러가 ${renderers.length}개다 — 탭 하나의 값이 아니다`)
   let total = 0
   for (const info of renderers) {
-    const rss = execSync(`ps -o rss= -p ${info.id} || true`).toString().trim()
-    if (rss) total += Number(rss)
+    const out = execSync(`footprint -p ${info.id} 2>/dev/null | grep phys_footprint: || true`).toString()
+    const found = out.match(/phys_footprint:\s*([\d.]+)\s*MB/)
+    if (found) total += Number(found[1])
   }
-  return +(total / 1024).toFixed(1)
+  return +total.toFixed(1)
 }
 
 /** ⑦ 브라우저 탭 메모리 (참고용 300MB) */
@@ -318,7 +323,7 @@ async function memory(browser) {
       return {
         label,
         rows: await totalRows(page),
-        rssMb: await rendererRssMb(browserSession),
+        footprintMb: await rendererFootprintMb(browserSession),
         agentMb: agent ? +(agent.bytes / 1024 / 1024).toFixed(1) : null,
         jsHeapMb: +(heap / 1024 / 1024).toFixed(1),
       }
@@ -363,7 +368,12 @@ function record(item, target, unit, measured, note = '') {
   console.log(`${mark} ${item.padEnd(34)} 목표 ${String(target).padStart(4)}${unit}  중위 ${measured.median.toFixed(1)}${unit}`)
 }
 
-const browser = await chromium.launch({ channel: 'chrome' })
+// 예비 렌더러를 끈다. Chrome 은 다음 탭을 위해 빈 렌더러를 미리 띄워 두는데,
+// 그것까지 세면 탭 하나의 메모리가 아니라 브라우저의 메모리를 재게 된다.
+const browser = await chromium.launch({
+  channel: 'chrome',
+  args: ['--disable-features=SpareRendererForSitePerProcess'],
+})
 try {
   const throttling = await verifyThrottling(browser)
   console.log(`CPU 스로틀링 교정: 1x ${throttling.plain}ms → ${CPU_THROTTLE}x ${throttling.throttled}ms (실측 배율 ${throttling.ratio})\n`)
@@ -377,11 +387,11 @@ try {
   console.log(`   ${deltaResult.hud}`)
 
   const mem = await memory(browser)
-  const memPassed = mem.typical.rssMb <= 300
-  results.push({ item: '⑦ 탭 메모리', target: 300, unit: 'MB', median: mem.typical.rssMb, samples: mem, passed: memPassed, note: '참고용' })
-  console.log(`${memPassed ? '✅' : '⚠️'} ⑦ 탭 메모리 (참고용)${' '.repeat(17)}목표  300MB  실사용 ${mem.typical.rssMb}MB (${mem.typical.rows.toLocaleString()}행)`)
+  const memPassed = mem.typical.footprintMb <= 300
+  results.push({ item: '⑦ 탭 메모리', target: 300, unit: 'MB', median: mem.typical.footprintMb, samples: mem, passed: memPassed, note: '참고용' })
+  console.log(`${memPassed ? '✅' : '⚠️'} ⑦ 탭 메모리 (참고용)${' '.repeat(17)}목표  300MB  실사용 ${mem.typical.footprintMb}MB (${mem.typical.rows.toLocaleString()}행)`)
   for (const s of [mem.empty, mem.typical, mem.full, mem.collapsed]) {
-    console.log(`     ${s.label.padEnd(22)} RSS ${String(s.rssMb).padStart(6)}MB · JS힙 ${String(s.jsHeapMb).padStart(5)}MB · ${s.rows.toLocaleString()}행`)
+    console.log(`     ${s.label.padEnd(22)} footprint ${String(s.footprintMb).padStart(5)}MB · JS힙 ${String(s.jsHeapMb).padStart(5)}MB · ${s.rows.toLocaleString()}행`)
   }
 
   const scroll = await scrollFrames(browser)
